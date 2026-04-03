@@ -3,8 +3,11 @@ import argparse
 import time
 import threading
 import random
+import socket
 import requests
 from datetime import datetime
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 class LoadTester:
@@ -14,7 +17,7 @@ class LoadTester:
         total_requests,
         concurrency,
         method="GET",
-        mode="normal",
+        mode="flood",
         no_ssl_verify=False,
         headers=None,
         data=None,
@@ -31,6 +34,7 @@ class LoadTester:
         self.lock = threading.Lock()
         self.running = True
         self.request_count = 0
+        self.connections = []
 
     def make_request(self):
         start = time.time()
@@ -77,6 +81,64 @@ class LoadTester:
                     self.results["errors"].get(str(type(e).__name__), 0) + 1
                 )
 
+    def saturation_worker(self):
+        session = requests.Session()
+        adapter = HTTPAdapter(
+            pool_connections=self.concurrency,
+            pool_maxsize=self.concurrency,
+            max_retries=Retry(total=0),
+        )
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+
+        while self.running:
+            try:
+                start = time.time()
+                kwargs = {"timeout": 30, "verify": not self.no_ssl_verify}
+                if self.headers:
+                    kwargs["headers"] = self.headers
+                if self.data:
+                    kwargs["data"] = self.data
+
+                if self.method == "GET":
+                    response = session.get(self.url, **kwargs)
+                else:
+                    response = session.post(self.url, **kwargs)
+
+                elapsed = time.time() - start
+
+                with self.lock:
+                    if 200 <= response.status_code < 300:
+                        self.results["success"] += 1
+                    else:
+                        self.results["failed"] += 1
+                        self.results["errors"][f"HTTP {response.status_code}"] = (
+                            self.results["errors"].get(
+                                f"HTTP {response.status_code}", 0
+                            )
+                            + 1
+                        )
+                    self.results["response_times"].append(elapsed)
+
+            except requests.exceptions.Timeout:
+                with self.lock:
+                    self.results["failed"] += 1
+                    self.results["errors"]["Timeout"] = (
+                        self.results["errors"].get("Timeout", 0) + 1
+                    )
+            except requests.exceptions.ConnectionError:
+                with self.lock:
+                    self.results["failed"] += 1
+                    self.results["errors"]["Connection Error"] = (
+                        self.results["errors"].get("Connection Error", 0) + 1
+                    )
+            except Exception as e:
+                with self.lock:
+                    self.results["failed"] += 1
+                    self.results["errors"][str(type(e).__name__)] = (
+                        self.results["errors"].get(str(type(e).__name__), 0) + 1
+                    )
+
     def worker(self, count):
         for _ in range(count):
             if not self.running:
@@ -85,7 +147,7 @@ class LoadTester:
             self.request_count += 1
 
     def run(self):
-        print(f"\n[*] Starting HTTP Flood test: {self.url}")
+        print(f"\n[*] Starting {self.mode.upper()} test: {self.url}")
         print(f"    Total requests: {self.total_requests}")
         print(f"    Concurrency: {self.concurrency}")
         print(f"    Method: {self.method}")
@@ -93,25 +155,40 @@ class LoadTester:
 
         start_time = time.time()
 
-        threads = []
-        requests_per_thread = self.total_requests // self.concurrency
+        if self.mode == "saturation":
+            threads = []
+            for _ in range(self.concurrency):
+                t = threading.Thread(target=self.saturation_worker)
+                t.start()
+                threads.append(t)
 
-        for _ in range(self.concurrency):
-            t = threading.Thread(target=self.worker, args=(requests_per_thread,))
-            t.start()
-            threads.append(t)
+            time.sleep(self.total_requests / 100)
 
-        for t in threads:
-            t.join()
+            self.running = False
+            for t in threads:
+                t.join()
+        else:
+            threads = []
+            requests_per_thread = self.total_requests // self.concurrency
 
-        self.running = False
+            for _ in range(self.concurrency):
+                t = threading.Thread(target=self.worker, args=(requests_per_thread,))
+                t.start()
+                threads.append(t)
+
+            for t in threads:
+                t.join()
+
+            self.running = False
+
         duration = time.time() - start_time
 
         self.print_results(duration)
 
     def print_results(self, duration):
+        mode_name = self.mode.upper()
         print("\n" + "=" * 50)
-        print("HTTP FLOOD RESULTS")
+        print(f"{mode_name} RESULTS")
         print("=" * 50)
 
         total = self.results["success"] + self.results["failed"]
@@ -147,7 +224,7 @@ class LoadTester:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="HTTP Flood Load Tester")
+    parser = argparse.ArgumentParser(description="Network Stresser - Load Testing Tool")
     parser.add_argument("url", help="Target URL (e.g., http://localhost:8080)")
     parser.add_argument(
         "-n",
@@ -166,7 +243,12 @@ def main():
     parser.add_argument(
         "-m", "--method", default="GET", choices=["GET", "POST"], help="HTTP method"
     )
-    parser.add_argument("--mode", default="flood", choices=["flood"], help="Test mode")
+    parser.add_argument(
+        "--mode",
+        default="flood",
+        choices=["flood", "saturation"],
+        help="Test mode: flood (high requests), saturation (connection pool exhaustion)",
+    )
     parser.add_argument(
         "--no-ssl-verify", action="store_true", help="Disable SSL verification"
     )
