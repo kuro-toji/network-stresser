@@ -9,7 +9,14 @@ A powerful yet simple Python-based load testing tool to evaluate web server perf
 - **Slow Request** - Long-duration requests for legitimate timeout testing
 - **Random Endpoints** - Test multiple routes with random selection
 - **HTTP/2 Support** - HTTP/2 protocol for multiplexed connections
-- **Proxy Support** - Route traffic through proxies for evasion
+- **WebSocket Support** - Test WebSocket servers
+- **HTTP Pipelining** - Send multiple requests in one connection
+- **Malformed Requests** - Test server robustness with invalid HTTP requests
+- **Config Files** - JSON-based attack profiles
+- **Real-time Progress** - Live stats during test execution
+- **Proxy Chain** - Multiple proxies for evasion
+- **Authentication** - Bearer, Basic, JWT, and session cookie support
+- **TLS Cipher Selection** - Specific TLS cipher suite selection
 - **JSON/CSV Export** - Save results to file for analysis
 - **Rate Limiting** - Custom RPS throttling per thread
 - **Client Certificates** - SSL client cert/key support
@@ -114,6 +121,84 @@ python loadtest.py https://localhost:8080 --client-cert cert.pem --client-key ke
 
 # Minimum TLS version
 python loadtest.py https://localhost:8080 --tls-version TLSv1.2
+
+# Specific TLS cipher
+python loadtest.py https://localhost:8080 --tls-cipher "ECDHE-RSA-AES256-GCM-SHA384"
+```
+
+### WebSocket Mode
+
+```bash
+# WebSocket stress test
+python loadtest.py ws://localhost:8080/ws --ws -c 50 -n 1000
+
+# Auto-convert http to ws
+python loadtest.py http://localhost:8080/socket --ws -c 50
+```
+
+### HTTP Pipelining
+
+```bash
+# Send 10 requests in one connection
+python loadtest.py http://localhost:8080 --pipeline 10 -n 5000
+```
+
+### Malformed Requests
+
+```bash
+# 1=basic malformed, 2=invalid version, 3=bad headers, 4=path traversal
+python loadtest.py http://localhost:8080 --malformed 1 -n 100
+python loadtest.py http://localhost:8080 --malformed 2 -n 100
+python loadtest.py http://localhost:8080 --malformed 3 -n 100
+python loadtest.py http://localhost:8080 --malformed 4 -n 100
+```
+
+### Config Files
+
+```bash
+# Load attack profile from JSON
+python loadtest.py --config profile.json
+```
+
+Example profile.json:
+```json
+{
+  "url": "http://target.com",
+  "requests": 10000,
+  "concurrency": 50,
+  "mode": "flood",
+  "proxy": "http://proxy:8080"
+}
+```
+
+### Real-time Progress
+
+```bash
+# Show live progress
+python loadtest.py http://localhost:8080 -n 10000 --real-time
+```
+
+### Proxy Chain
+
+```bash
+# Chain multiple proxies
+python loadtest.py http://target.com --proxy-chain http://proxy1:8080 http://proxy2:3128 -c 50
+```
+
+### Authentication
+
+```bash
+# Bearer token
+python loadtest.py http://localhost:8080 --auth-type bearer --auth-token "your-token"
+
+# Basic auth
+python loadtest.py http://localhost:8080 --auth-type basic --auth-token "user:pass"
+
+# JWT
+python loadtest.py http://localhost:8080 --auth-type jwt --auth-token "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+# Session cookie
+python loadtest.py http://localhost:8080 --session-cookie "session=abc123"
 ```
 
 ### Options
@@ -133,7 +218,17 @@ python loadtest.py https://localhost:8080 --tls-version TLSv1.2
 | `--client-cert` | Path to client certificate | None |
 | `--client-key` | Path to client key | None |
 | `--tls-version` | Minimum TLS version | None |
+| `--tls-cipher` | TLS cipher suite | None |
 | `--proxy` | Proxy URL | None |
+| `--proxy-chain` | Multiple proxy chain | None |
+| `--ws, --websocket` | WebSocket mode | False |
+| `--pipeline` | HTTP pipelining count | 1 |
+| `--malformed` | Malformed request type (0-4) | 0 |
+| `--config` | Load from JSON config | None |
+| `--real-time` | Show real-time progress | False |
+| `--auth-type` | Auth type (bearer/basic/jwt) | None |
+| `--auth-token` | Auth token/credentials | None |
+| `--session-cookie` | Session cookie | None |
 | `-H, --header` | Custom header (key:value) | None |
 | `--no-ssl-verify` | Disable SSL verification | False |
 
