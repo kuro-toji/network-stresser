@@ -40,6 +40,7 @@ class LoadTester:
         client_key=None,
         tls_version=None,
         ws=False,
+        pipeline=1,
     ):
         self.url = url
         self.total_requests = total_requests
@@ -59,6 +60,7 @@ class LoadTester:
         self.client_key = client_key
         self.tls_version = tls_version
         self.ws = ws
+        self.pipeline = pipeline
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -370,6 +372,55 @@ class LoadTester:
                         self.results["errors"].get(str(type(e).__name__), 0) + 1
                     )
 
+    def pipeline_worker(self):
+        if self.pipeline <= 1:
+            self.worker(self.total_requests // self.concurrency)
+            return
+
+        session = requests.Session()
+        adapter = HTTPAdapter(pool_connections=1, pool_maxsize=1)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+
+        while self.running:
+            try:
+                start = time.time()
+                target_url = self.get_target_url()
+
+                kwargs = {"timeout": 30, "verify": not self.no_ssl_verify}
+                if self.headers:
+                    kwargs["headers"] = self.headers
+                if self.data:
+                    kwargs["data"] = self.data
+                if self.proxy:
+                    kwargs["proxies"] = {"http": self.proxy, "https": self.proxy}
+
+                sock = session.get(target_url, **kwargs).raw
+
+                responses = []
+                for _ in range(self.pipeline):
+                    resp = sock.read(4096)
+                    responses.append(resp)
+                    if not resp:
+                        break
+
+                sock.close()
+                elapsed = time.time() - start
+
+                with self.lock:
+                    if responses:
+                        self.results["success"] += len(responses)
+                    else:
+                        self.results["failed"] += 1
+                    self.results["response_times"].append(elapsed)
+
+            except Exception as e:
+                with self.lock:
+                    self.results["failed"] += 1
+                    self.results["errors"][str(type(e).__name__)] = (
+                        self.results["errors"].get(str(type(e).__name__), 0) + 1
+                    )
+
     def get_target_url(self):
         if self.endpoints:
             path = random.choice(self.endpoints)
@@ -428,6 +479,8 @@ class LoadTester:
             print(f"    Proxy: {self.proxy}")
         if self.rps > 0:
             print(f"    RPS limit: {self.rps}")
+        if self.pipeline > 1:
+            print(f"    Pipeline: {self.pipeline}")
         if self.endpoints:
             print(f"    Endpoints: {self.endpoints}")
         if self.mode == "slow":
@@ -467,6 +520,18 @@ class LoadTester:
                 threads.append(t)
 
             time.sleep(self.total_requests * self.slow_duration / self.concurrency)
+
+            self.running = False
+            for t in threads:
+                t.join()
+        elif self.pipeline > 1:
+            threads = []
+            for _ in range(self.concurrency):
+                t = threading.Thread(target=self.pipeline_worker)
+                t.start()
+                threads.append(t)
+
+            time.sleep(self.total_requests / 100)
 
             self.running = False
             for t in threads:
@@ -682,6 +747,12 @@ def main():
         help="WebSocket mode",
     )
     parser.add_argument(
+        "--pipeline",
+        type=int,
+        default=1,
+        help="Number of requests to send in one connection (HTTP pipelining)",
+    )
+    parser.add_argument(
         "--proxy",
         help="Proxy URL (e.g., http://127.0.0.1:8080)",
     )
@@ -713,6 +784,7 @@ def main():
         client_key=args.client_key,
         tls_version=args.tls_version,
         ws=args.ws,
+        pipeline=args.pipeline,
     )
     tester.run()
 
