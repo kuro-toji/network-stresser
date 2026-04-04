@@ -45,6 +45,9 @@ class LoadTester:
         config=None,
         real_time=False,
         proxy_chain=None,
+        auth_type=None,
+        auth_token=None,
+        session_cookie=None,
     ):
         if config:
             with open(config, "r") as f:
@@ -63,6 +66,9 @@ class LoadTester:
                 output = cfg.get("output", output)
                 proxy = cfg.get("proxy", proxy)
                 proxy_chain = cfg.get("proxy_chain", proxy_chain)
+                auth_type = cfg.get("auth_type", auth_type)
+                auth_token = cfg.get("auth_token", auth_token)
+                session_cookie = cfg.get("session_cookie", session_cookie)
                 rps = cfg.get("rps", rps)
                 client_cert = cfg.get("client_cert", client_cert)
                 client_key = cfg.get("client_key", client_key)
@@ -94,6 +100,9 @@ class LoadTester:
         self.malformed = malformed
         self.real_time = real_time
         self.proxy_chain = proxy_chain or []
+        self.auth_type = auth_type
+        self.auth_token = auth_token
+        self.session_cookie = session_cookie
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -127,7 +136,21 @@ class LoadTester:
                 return
 
             if self.headers:
-                kwargs["headers"] = self.headers
+                kwargs["headers"] = self.headers.copy()
+            if self.auth_type and self.auth_token:
+                if self.auth_type == "bearer":
+                    kwargs["headers"]["Authorization"] = f"Bearer {self.auth_token}"
+                elif self.auth_type == "basic":
+                    import base64
+
+                    kwargs["headers"]["Authorization"] = f"Basic {self.auth_token}"
+                elif self.auth_type == "jwt":
+                    kwargs["headers"]["Authorization"] = f"Bearer {self.auth_token}"
+            if self.session_cookie:
+                if "Cookie" in kwargs["headers"]:
+                    kwargs["headers"]["Cookie"] += f"; {self.session_cookie}"
+                else:
+                    kwargs["headers"]["Cookie"] = self.session_cookie
             if self.data:
                 kwargs["data"] = self.data
             if self.proxy:
@@ -853,6 +876,19 @@ def main():
         nargs="+",
         help="Chain multiple proxies (e.g., --proxy-chain http://proxy1:8080 http://proxy2:3128)",
     )
+    parser.add_argument(
+        "--auth-type",
+        choices=["bearer", "basic", "jwt"],
+        help="Authentication type: bearer (token), basic (username:password), jwt",
+    )
+    parser.add_argument(
+        "--auth-token",
+        help="Authentication token or credentials",
+    )
+    parser.add_argument(
+        "--session-cookie",
+        help="Session cookie (name=value)",
+    )
 
     args = parser.parse_args()
 
@@ -886,6 +922,9 @@ def main():
         config=args.config,
         real_time=args.real_time,
         proxy_chain=args.proxy_chain,
+        auth_type=args.auth_type,
+        auth_token=args.auth_token,
+        session_cookie=args.session_cookie,
     )
     tester.run()
 
