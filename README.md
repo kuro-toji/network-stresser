@@ -4,7 +4,7 @@ A professional-grade, feature-rich network load testing and stress testing tool 
 
 ## Features
 
-### Attack Modes
+### Core Attack Modes
 - **HTTP Flood** - High volume requests to test server capacity
 - **Connection Saturation** - Exhaust connection pools with many concurrent connections
 - **Slow Request** - Long-duration requests for legitimate timeout testing
@@ -20,6 +20,12 @@ A professional-grade, feature-rich network load testing and stress testing tool 
 - **WebSocket** - WebSocket server testing
 - **IPv6** - Native IPv6 targeting
 - **Custom HTTP Versions** - HTTP/0.9, HTTP/1.0, HTTP/1.1
+- **FTP** - FTP server load testing
+- **SMTP** - SMTP server stress testing
+- **SSH** - SSH service testing
+- **MySQL** - Database server testing
+- **Telnet** - Telnet service testing
+- **Memcache** - Memcached protocol testing
 
 ### Advanced Testing
 - **HTTP Pipelining** - Send multiple requests in one connection
@@ -30,6 +36,7 @@ A professional-grade, feature-rich network load testing and stress testing tool 
 - **DNS Stress Test** - DNS server load testing
 - **Host Header Injection** - Virtual host testing
 - **Cache Bypass** - Random query params to bypass CDN cache
+- **Scenario Testing** - JSON-defined request sequences and workflows
 
 ### Authentication & Security
 - **Bearer Token** - OAuth/JWT bearer authentication
@@ -38,26 +45,90 @@ A professional-grade, feature-rich network load testing and stress testing tool 
 - **Client Certificates** - SSL/TLS client cert/key support
 - **TLS Version Control** - TLSv1, TLSv1.1, TLSv1.2, TLSv1.3
 - **TLS Cipher Selection** - Custom cipher suite selection
+- **SSL/TLS Analysis** - Certificate validation, cipher strength testing, vulnerability scanning
 
 ### Network Features
 - **Proxy Support** - Single HTTP proxy
 - **Proxy Chain** - Multiple proxies with rotation
+- **Proxy Fetcher** - Built-in proxy list fetching from public sources
+- **Proxy Rotator** - Round-robin, random, least-used, fastest, healthy strategies
 - **Tor/Onion Routing** - Anonymous routing via Tor
 - **Bandwidth Throttling** - Simulate slow connections (Kbps)
 - **Redirect Control** - Toggle 30x redirect following
 
-### Output & Configuration
-- **JSON/CSV Export** - Save results to files
-- **Real-time Progress** - Live stats during test execution
-- **Config Files** - JSON-based attack profiles
-- **Multi-target Mode** - Test multiple targets from config
+### Rate Limiting
+- **Token Bucket** - Classic token bucket algorithm
+- **Leaky Bucket** - Traffic shaping with uniform outflow
+- **Sliding Window Counter** - Fixed window with sliding count
+- **Sliding Window Log** - Precise sliding window logging
+- **Adaptive Rate Limiter** - Automatic rate adjustment based on success rate
+- **Per-worker RPS Limits** - Precise requests per second controls
+
+### Distributed Testing
+- **Master Node** - Central coordinator for distributed tests
+- **Worker Node** - Remote workers that execute tests
+- **Real-time Stats Aggregation** - Combined statistics from all workers
+- **Scalable Load Generation** - Horizontally scale across multiple machines
+
+### Reporting & Metrics
+- **HTML Reports** - Interactive charts with Chart.js
+- **JSON Export** - Machine-readable detailed output
+- **CSV Export** - Spreadsheet-compatible format
+- **Response Time Histograms** - Latency distribution visualization
+- **Percentile Analysis** - p50, p90, p95, p99, p99.9
+- **System Metrics** - CPU, memory, thread counts
+- **Interval Metrics** - Time-series performance data
+
+### Configuration
+- **JSON Config** - Traditional JSON configuration files
+- **YAML Config** - Human-readable YAML format
+- **TOML Config** - TOML configuration support
+- **Environment Variables** - Runtime configuration
+- **Config Merging** - CLI args override config file values
+
+### Web UI
+- **Browser-based Interface** - Configure tests visually
+- **Real-time Statistics** - Live RPS, success/failure counters
+- **Interactive Charts** - Visual performance graphs
+- **Live Log View** - Streaming test output
+- **Start/Stop Controls** - Control tests from browser
+
+### CI/CD Integration
+- **Pytest Test Suite** - Comprehensive unit tests
+- **GitHub Actions** - Automated CI pipeline
+- **Code Coverage** - Coverage reporting with codecov
+- **Lint Checking** - ruff code quality checks
 
 ## Installation
+
+### Standard Installation
 
 ```bash
 git clone https://github.com/kuro-toji/network-stresser.git
 cd network-stresser
 pip install -r requirements.txt
+```
+
+### Pip Installation
+
+```bash
+pip install -e .
+# or
+pip install -e ".[dev]"  # with development dependencies
+```
+
+### Using pyproject.toml
+
+```bash
+pip install -e .
+network-stresser --help
+```
+
+### Install Dependencies for Optional Features
+
+```bash
+pip install network-stresser[reports]  # For HTML reports with charts
+pip install network-stresser[dev]      # For development/testing
 ```
 
 ## Usage Examples
@@ -176,6 +247,12 @@ python loadtest.py https://localhost:8080 --no-ssl-verify
 ```bash
 # Load from JSON config
 python loadtest.py --config profile.json
+
+# Load from YAML config
+python loadtest.py --config profile.yaml
+
+# Load from TOML config
+python loadtest.py --config profile.toml
 ```
 
 Example `profile.json`:
@@ -189,6 +266,17 @@ Example `profile.json`:
   "auth_type": "bearer",
   "auth_token": "your-token"
 }
+```
+
+Example `profile.yaml`:
+```yaml
+url: http://target.com
+requests: 10000
+concurrency: 50
+mode: flood
+proxy: http://proxy:8080
+auth_type: bearer
+auth_token: your-token
 ```
 
 ### Output & Monitoring
@@ -224,6 +312,201 @@ Example `targets.json`:
   ]
 }
 ```
+
+## Advanced Features
+
+### Distributed Mode
+
+Start a master node:
+```bash
+python distributed.py --mode master --bind 0.0.0.0 --port 5555
+```
+
+Start a worker node:
+```bash
+python distributed.py --mode worker --master-host localhost --master-port 5555 --config-file test_config.json
+```
+
+### Web UI
+
+Start the web-based user interface:
+```bash
+python webui.py --host 0.0.0.0 --port 8080
+```
+
+Then open http://localhost:8080 in your browser to:
+- Configure tests visually
+- View real-time statistics
+- Monitor live charts
+- Start/stop tests
+
+### Scenario Testing
+
+Create a scenario file (`scenario.json`):
+```json
+{
+  "name": "User Journey Test",
+  "description": "Test user registration and login flow",
+  "steps": [
+    {
+      "type": "variable_set",
+      "name": "Generate User",
+      "params": { "uuid": true }
+    },
+    {
+      "type": "request",
+      "name": "Register User",
+      "params": {
+        "method": "POST",
+        "url": "/api/users/register",
+        "headers": { "Content-Type": "application/json" },
+        "body": "{\"username\": \"{{uuid}}\", \"email\": \"{{uuid}}@example.com\", \"password\": \"test123\"}",
+        "extract": { "user_id": "$.id", "token": "$.auth_token" }
+      }
+    },
+    {
+      "type": "think",
+      "name": "Wait before login",
+      "params": { "duration": 1 }
+    },
+    {
+      "type": "request",
+      "name": "Login",
+      "params": {
+        "method": "POST",
+        "url": "/api/auth/login",
+        "headers": { "Content-Type": "application/json" },
+        "body": "{\"username\": \"{{uuid}}@example.com\", \"password\": \"test123\"}",
+        "extract": { "session_token": "$.session_token" }
+      }
+    },
+    {
+      "type": "request",
+      "name": "Get Profile",
+      "params": {
+        "method": "GET",
+        "url": "/api/users/me",
+        "headers": { "Authorization": "Bearer {{session_token}}" }
+      }
+    }
+  ]
+}
+```
+
+Run the scenario:
+```python
+from scenario import ScenarioLoader, ScenarioRunner
+
+scenario = ScenarioLoader.load("scenario.json")
+runner = ScenarioRunner(scenario, base_url="http://localhost:8080")
+results = runner.run(iterations=10)
+```
+
+### SSL/TLS Analysis
+
+Analyze SSL/TLS configuration of a server:
+```python
+from ssl_analyzer import SSLAnalyzer
+
+analyzer = SSLAnalyzer(timeout=10)
+results = analyzer.full_scan("example.com", 443)
+
+print(f"Supports TLSv1.2: {results['supports_tlsv12']}")
+print(f"Supports TLSv1.3: {results['supports_tlsv13']}")
+print(f"Cipher strength: {results['tls']['cipher_strength']}")
+print(f"Vulnerabilities: {results['tls']['vulnerabilities']}")
+print(f"Certificate valid: {results['certificate']['is_valid']}")
+print(f"Days remaining: {results['certificate']['days_remaining']}")
+```
+
+### Proxy Fetcher & Rotator
+
+Fetch and use proxies:
+```python
+from proxies import ProxyFetcher, ProxyChecker, ProxyPool, ProxyRotator
+
+# Fetch proxies
+fetcher = ProxyFetcher()
+proxies = fetcher.get_proxies(force_refresh=True)
+
+# Check which ones work
+checker = ProxyChecker()
+working = checker.check_proxies(proxies, max_threads=10)
+
+# Create a pool
+pool = ProxyPool()
+for proxy in working:
+    pool.add(proxy)
+
+# Use rotator with strategy
+rotator = ProxyRotator(pool)
+proxy = rotator.get_proxy(strategy="fastest")  # or "round_robin", "random", "least_used"
+```
+
+### Rate Limiting Controls
+
+Use advanced rate limiting:
+```python
+from ratelimit import RateLimiter, RateLimitConfig, TokenBucket, AdaptiveRateLimiter
+
+# Token bucket with burst
+config = RateLimitConfig(requests_per_second=100, burst_size=50)
+limiter = RateLimiter(config)
+
+# Adaptive rate limiting
+adaptive = AdaptiveRateLimiter(initial_rate=100, min_rate=10, max_rate=1000)
+
+for _ in range(1000):
+    limiter.acquire()
+    # ... make request ...
+    if success:
+        adaptive.record_success()
+    else:
+        adaptive.record_failure()
+```
+
+### Metrics Collection
+
+Collect detailed metrics:
+```python
+from metrics import MetricsCollector
+
+collector = MetricsCollector(interval=1.0)
+collector.start()
+
+# ... run load test ...
+
+collector.stop()
+
+# Get statistics
+stats = collector.get_latency_stats()
+percentiles = collector.get_latency_percentiles()
+histogram = collector.get_latency_histogram(bucket_count=50)
+summary = collector.get_summary()
+
+# Export to JSON
+collector.export_json("metrics_report.json")
+```
+
+### HTML Reports
+
+Generate beautiful HTML reports:
+```python
+from reports import ResultsExporter, ReportGenerator, TestResult
+
+# Export results to all formats
+ResultsExporter.export(
+    results={"success": 950, "failed": 50, "errors": {}, "mode": "flood", "url": "http://test.com"},
+    output_format="all",
+    output_path="loadtest_report",
+    response_times=[0.1, 0.2, 0.3, ...]
+)
+```
+
+This creates:
+- `loadtest_report.html` - Interactive HTML report with charts
+- `loadtest_report.json` - Detailed JSON data
+- `loadtest_report.csv` - CSV spreadsheet
 
 ## Command Options
 
@@ -304,6 +587,22 @@ Errors:
 ==================================================
 ```
 
+## Module Structure
+
+| Module | Description |
+|--------|-------------|
+| `loadtest.py` | Main entry point with LoadTester class |
+| `distributed.py` | Master/worker architecture for distributed testing |
+| `reports.py` | HTML, JSON, CSV report generation |
+| `protocols.py` | QUIC, FTP, SMTP, SSH, MySQL, Telnet, Memcache protocols |
+| `ratelimit.py` | TokenBucket, LeakyBucket, SlidingWindow algorithms |
+| `config_loader.py` | JSON, YAML, TOML configuration loading |
+| `webui.py` | Browser-based web interface |
+| `metrics.py` | Metrics collection and analysis |
+| `scenario.py` | JSON-based scenario/workflow testing |
+| `proxies.py` | Proxy fetching, checking, and rotation |
+| `ssl_analyzer.py` | SSL/TLS certificate and cipher analysis |
+
 ## Use Cases
 
 - Performance testing and capacity planning
@@ -312,6 +611,22 @@ Errors:
 - DDoS mitigation testing
 - SSL/TLS configuration validation
 - Proxy and network infrastructure testing
+- CI/CD pipeline integration
+- Multi-protocol service testing
+- Distributed load generation across multiple machines
+
+## Testing
+
+```bash
+# Run all tests
+pytest tests/ -v
+
+# Run with coverage
+pytest tests/ --cov=. --cov-report=html
+
+# Run specific test file
+pytest tests/test_loadtest.py -v
+```
 
 ## Disclaimer
 
