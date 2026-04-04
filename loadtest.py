@@ -48,6 +48,7 @@ class LoadTester:
         auth_type=None,
         auth_token=None,
         session_cookie=None,
+        tls_cipher=None,
     ):
         if config:
             with open(config, "r") as f:
@@ -69,6 +70,7 @@ class LoadTester:
                 auth_type = cfg.get("auth_type", auth_type)
                 auth_token = cfg.get("auth_token", auth_token)
                 session_cookie = cfg.get("session_cookie", session_cookie)
+                tls_cipher = cfg.get("tls_cipher", tls_cipher)
                 rps = cfg.get("rps", rps)
                 client_cert = cfg.get("client_cert", client_cert)
                 client_key = cfg.get("client_key", client_key)
@@ -103,6 +105,7 @@ class LoadTester:
         self.auth_type = auth_type
         self.auth_token = auth_token
         self.session_cookie = session_cookie
+        self.tls_cipher = tls_cipher
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -889,6 +892,10 @@ def main():
         "--session-cookie",
         help="Session cookie (name=value)",
     )
+    parser.add_argument(
+        "--tls-cipher",
+        help="TLS cipher suite (e.g., ECDHE-RSA-AES256-GCM-SHA384)",
+    )
 
     args = parser.parse_args()
 
@@ -925,6 +932,7 @@ def main():
         auth_type=args.auth_type,
         auth_token=args.auth_token,
         session_cookie=args.session_cookie,
+        tls_cipher=args.tls_cipher,
     )
     tester.run()
 
