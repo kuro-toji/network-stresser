@@ -65,6 +65,7 @@ class LoadTester:
         gzip_bomb=False,
         throttle_kbps=0,
         targets=None,
+        follow_redirects=True,
     ):
         if config:
             with open(config, "r") as f:
@@ -101,6 +102,7 @@ class LoadTester:
                 gzip_bomb = cfg.get("gzip_bomb", gzip_bomb)
                 throttle_kbps = cfg.get("throttle_kbps", throttle_kbps)
                 targets = cfg.get("targets", targets)
+                follow_redirects = cfg.get("follow_redirects", follow_redirects)
                 rps = cfg.get("rps", rps)
                 client_cert = cfg.get("client_cert", client_cert)
                 client_key = cfg.get("client_key", client_key)
@@ -150,6 +152,7 @@ class LoadTester:
         self.gzip_bomb = gzip_bomb
         self.throttle_kbps = throttle_kbps
         self.targets = targets or []
+        self.follow_redirects = follow_redirects
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -381,9 +384,13 @@ class LoadTester:
             if self.protocol == "h2":
                 response = self.make_httpx_request(target_url, kwargs)
             elif self.method == "GET":
-                response = requests.get(target_url, **kwargs)
+                response = requests.get(
+                    target_url, allow_redirects=self.follow_redirects, **kwargs
+                )
             else:
-                response = requests.post(target_url, **kwargs)
+                response = requests.post(
+                    target_url, allow_redirects=self.follow_redirects, **kwargs
+                )
 
             elapsed = time.time() - start
             status = response.status_code
@@ -836,6 +843,8 @@ class LoadTester:
             print(f"    Throttle: {self.throttle_kbps} Kbps")
         if self.targets:
             print(f"    Multi-target: {len(self.targets)} targets")
+        if not self.follow_redirects:
+            print(f"    Follow Redirects: disabled")
 
         start_time = time.time()
 
@@ -1298,6 +1307,11 @@ def main():
         "--targets-file",
         help="Load multiple targets from JSON file",
     )
+    parser.add_argument(
+        "--no-follow-redirects",
+        action="store_true",
+        help="Don't follow HTTP redirects (30x responses)",
+    )
 
     if args.targets_file:
         with open(args.targets_file, "r") as f:
@@ -1358,6 +1372,7 @@ def main():
         gzip_bomb=args.gzip_bomb,
         throttle_kbps=args.throttle,
         targets=targets if "targets" in dir() else None,
+        follow_redirects=not args.no_follow_redirects,
     )
     tester.run()
 
