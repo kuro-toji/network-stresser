@@ -64,6 +64,7 @@ class LoadTester:
         cache_bypass=False,
         gzip_bomb=False,
         throttle_kbps=0,
+        targets=None,
     ):
         if config:
             with open(config, "r") as f:
@@ -99,6 +100,7 @@ class LoadTester:
                 cache_bypass = cfg.get("cache_bypass", cache_bypass)
                 gzip_bomb = cfg.get("gzip_bomb", gzip_bomb)
                 throttle_kbps = cfg.get("throttle_kbps", throttle_kbps)
+                targets = cfg.get("targets", targets)
                 rps = cfg.get("rps", rps)
                 client_cert = cfg.get("client_cert", client_cert)
                 client_key = cfg.get("client_key", client_key)
@@ -147,6 +149,7 @@ class LoadTester:
         self.cache_bypass = cache_bypass
         self.gzip_bomb = gzip_bomb
         self.throttle_kbps = throttle_kbps
+        self.targets = targets or []
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -831,6 +834,8 @@ class LoadTester:
             print(f"    GZIP Bomb: enabled")
         if self.throttle_kbps > 0:
             print(f"    Throttle: {self.throttle_kbps} Kbps")
+        if self.targets:
+            print(f"    Multi-target: {len(self.targets)} targets")
 
         start_time = time.time()
 
@@ -1289,6 +1294,19 @@ def main():
         default=0,
         help="Bandwidth throttle in Kbps (simulate slow connection)",
     )
+    parser.add_argument(
+        "--targets-file",
+        help="Load multiple targets from JSON file",
+    )
+
+    if args.targets_file:
+        with open(args.targets_file, "r") as f:
+            targets_data = json.load(f)
+            targets = targets_data.get("targets", [])
+            if targets:
+                print(f"[*] Loaded {len(targets)} targets from {args.targets_file}")
+                for t in targets:
+                    print(f"    - {t}")
 
     args = parser.parse_args()
 
@@ -1339,6 +1357,7 @@ def main():
         cache_bypass=args.cache_bypass,
         gzip_bomb=args.gzip_bomb,
         throttle_kbps=args.throttle,
+        targets=targets if "targets" in dir() else None,
     )
     tester.run()
 
