@@ -58,6 +58,7 @@ class LoadTester:
         slowloris=False,
         slow_post=False,
         dns_stress=False,
+        ipv6=False,
     ):
         if config:
             with open(config, "r") as f:
@@ -87,6 +88,7 @@ class LoadTester:
                 slowloris = cfg.get("slowloris", slowloris)
                 slow_post = cfg.get("slow_post", slow_post)
                 dns_stress = cfg.get("dns_stress", dns_stress)
+                ipv6 = cfg.get("ipv6", ipv6)
                 rps = cfg.get("rps", rps)
                 client_cert = cfg.get("client_cert", client_cert)
                 client_key = cfg.get("client_key", client_key)
@@ -129,6 +131,7 @@ class LoadTester:
         self.slowloris = slowloris
         self.slow_post = slow_post
         self.dns_stress = dns_stress
+        self.ipv6 = ipv6
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -154,10 +157,11 @@ class LoadTester:
             )
 
         payload = b"X" * 1400
+        family = socket.AF_INET6 if self.ipv6 else socket.AF_INET
 
         while self.running:
             try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock = socket.socket(family, socket.SOCK_DGRAM)
                 sock.sendto(payload, (host, port))
                 sock.close()
                 with self.lock:
@@ -758,6 +762,8 @@ class LoadTester:
             print(f"    Slow POST: enabled")
         if self.dns_stress:
             print(f"    DNS Stress: enabled")
+        if self.ipv6:
+            print(f"    IPv6: enabled")
 
         start_time = time.time()
 
@@ -1186,6 +1192,11 @@ def main():
         action="store_true",
         help="DNS server stress test",
     )
+    parser.add_argument(
+        "--ipv6",
+        action="store_true",
+        help="Use IPv6 for connections",
+    )
 
     args = parser.parse_args()
 
@@ -1230,6 +1241,7 @@ def main():
         slowloris=args.slowloris,
         slow_post=args.slow_post,
         dns_stress=args.dns_stress,
+        ipv6=args.ipv6,
     )
     tester.run()
 
