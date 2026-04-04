@@ -5,6 +5,9 @@ A powerful yet simple Python-based load testing tool to evaluate web server perf
 ## Features
 
 - **HTTP Flood** - High volume requests to test server capacity
+- **Connection Saturation** - Many concurrent connections to exhaust connection pools
+- **Slow Request** - Long-duration requests for legitimate timeout testing
+- **Random Endpoints** - Test multiple routes with random selection
 - **Multiple HTTP Methods** - GET and POST support
 - **Custom Headers** - Add authentication, cookies, etc.
 - **SSL Control** - Toggle SSL verification
@@ -36,6 +39,30 @@ python loadtest.py http://localhost:8080 -H "Authorization:Bearer token" -c 100
 python loadtest.py https://localhost:8080 --no-ssl-verify
 ```
 
+### Connection Saturation Mode
+
+```bash
+# Exhaust connection pools with many concurrent connections
+python loadtest.py http://localhost:8080 --mode saturation -c 100 -n 1000
+```
+
+### Slow Request Mode
+
+```bash
+# Test server timeout handling with long-duration requests
+python loadtest.py http://localhost:8080 --mode slow -c 50 -n 10 --slow-duration 120
+```
+
+### Random Endpoints Mode
+
+```bash
+# Test multiple routes with random selection
+python loadtest.py http://localhost:8080 -e /api/users -e /api/login -e /admin -c 50
+
+# Combine with any mode
+python loadtest.py http://localhost:8080 --mode saturation -e /api/v1/* -e /admin -c 100
+```
+
 ### Options
 
 | Option | Description | Default |
@@ -44,6 +71,9 @@ python loadtest.py https://localhost:8080 --no-ssl-verify
 | `-n, --requests` | Total requests | 1000 |
 | `-c, --concurrency` | Concurrent threads | 10 |
 | `-m, --method` | HTTP method (GET/POST) | GET |
+| `--mode` | Test mode (flood/saturation/slow) | flood |
+| `-e, --endpoint` | Endpoint path for random selection | None |
+| `--slow-duration` | Duration for slow mode (seconds) | 60 |
 | `-H, --header` | Custom header (key:value) | None |
 | `--no-ssl-verify` | Disable SSL verification | False |
 

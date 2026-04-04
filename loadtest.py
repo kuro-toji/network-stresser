@@ -21,6 +21,8 @@ class LoadTester:
         no_ssl_verify=False,
         headers=None,
         data=None,
+        slow_duration=60,
+        endpoints=None,
     ):
         self.url = url
         self.total_requests = total_requests
@@ -30,6 +32,8 @@ class LoadTester:
         self.no_ssl_verify = no_ssl_verify
         self.headers = headers or {}
         self.data = data
+        self.slow_duration = slow_duration
+        self.endpoints = endpoints or []
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -39,6 +43,7 @@ class LoadTester:
     def make_request(self):
         start = time.time()
         try:
+            target_url = self.get_target_url()
             kwargs = {"timeout": 10, "verify": not self.no_ssl_verify}
             if self.headers:
                 kwargs["headers"] = self.headers
@@ -46,9 +51,9 @@ class LoadTester:
                 kwargs["data"] = self.data
 
             if self.method == "GET":
-                response = requests.get(self.url, **kwargs)
+                response = requests.get(target_url, **kwargs)
             else:
-                response = requests.post(self.url, **kwargs)
+                response = requests.post(target_url, **kwargs)
 
             elapsed = time.time() - start
             status = response.status_code
@@ -93,6 +98,7 @@ class LoadTester:
 
         while self.running:
             try:
+                target_url = self.get_target_url()
                 start = time.time()
                 kwargs = {"timeout": 30, "verify": not self.no_ssl_verify}
                 if self.headers:
@@ -101,9 +107,9 @@ class LoadTester:
                     kwargs["data"] = self.data
 
                 if self.method == "GET":
-                    response = session.get(self.url, **kwargs)
+                    response = session.get(target_url, **kwargs)
                 else:
-                    response = session.post(self.url, **kwargs)
+                    response = session.post(target_url, **kwargs)
 
                 elapsed = time.time() - start
 
@@ -139,6 +145,69 @@ class LoadTester:
                         self.results["errors"].get(str(type(e).__name__), 0) + 1
                     )
 
+    def slow_worker(self):
+        session = requests.Session()
+        while self.running:
+            try:
+                target_url = self.get_target_url()
+                start = time.time()
+                kwargs = {
+                    "timeout": self.slow_duration + 10,
+                    "verify": not self.no_ssl_verify,
+                }
+                if self.headers:
+                    kwargs["headers"] = self.headers
+                if self.data:
+                    kwargs["data"] = self.data
+
+                if self.method == "GET":
+                    response = session.get(target_url, **kwargs)
+                else:
+                    response = session.post(target_url, **kwargs)
+
+                elapsed = time.time() - start
+
+                with self.lock:
+                    if 200 <= response.status_code < 300:
+                        self.results["success"] += 1
+                    else:
+                        self.results["failed"] += 1
+                        self.results["errors"][f"HTTP {response.status_code}"] = (
+                            self.results["errors"].get(
+                                f"HTTP {response.status_code}", 0
+                            )
+                            + 1
+                        )
+                    self.results["response_times"].append(elapsed)
+
+            except requests.exceptions.Timeout:
+                with self.lock:
+                    self.results["failed"] += 1
+                    self.results["errors"]["Timeout"] = (
+                        self.results["errors"].get("Timeout", 0) + 1
+                    )
+            except requests.exceptions.ConnectionError:
+                with self.lock:
+                    self.results["failed"] += 1
+                    self.results["errors"]["Connection Error"] = (
+                        self.results["errors"].get("Connection Error", 0) + 1
+                    )
+            except Exception as e:
+                with self.lock:
+                    self.results["failed"] += 1
+                    self.results["errors"][str(type(e).__name__)] = (
+                        self.results["errors"].get(str(type(e).__name__), 0) + 1
+                    )
+
+    def get_target_url(self):
+        if self.endpoints:
+            path = random.choice(self.endpoints)
+            if path.startswith("/"):
+                base = self.url.rstrip("/")
+                return base + path
+            return path
+        return self.url
+
     def worker(self, count):
         for _ in range(count):
             if not self.running:
@@ -152,6 +221,10 @@ class LoadTester:
         print(f"    Concurrency: {self.concurrency}")
         print(f"    Method: {self.method}")
         print(f"    Mode: {self.mode}")
+        if self.endpoints:
+            print(f"    Endpoints: {self.endpoints}")
+        if self.mode == "slow":
+            print(f"    Slow duration: {self.slow_duration}s")
 
         start_time = time.time()
 
@@ -163,6 +236,18 @@ class LoadTester:
                 threads.append(t)
 
             time.sleep(self.total_requests / 100)
+
+            self.running = False
+            for t in threads:
+                t.join()
+        elif self.mode == "slow":
+            threads = []
+            for _ in range(self.concurrency):
+                t = threading.Thread(target=self.slow_worker)
+                t.start()
+                threads.append(t)
+
+            time.sleep(self.total_requests * self.slow_duration / self.concurrency)
 
             self.running = False
             for t in threads:
@@ -246,8 +331,8 @@ def main():
     parser.add_argument(
         "--mode",
         default="flood",
-        choices=["flood", "saturation"],
-        help="Test mode: flood (high requests), saturation (connection pool exhaustion)",
+        choices=["flood", "saturation", "slow"],
+        help="Test mode: flood (high requests), saturation (connection pool exhaustion), slow (long-duration requests)",
     )
     parser.add_argument(
         "--no-ssl-verify", action="store_true", help="Disable SSL verification"
@@ -258,6 +343,19 @@ def main():
         action="append",
         dest="headers",
         help="Add custom header (key:value)",
+    )
+    parser.add_argument(
+        "-e",
+        "--endpoint",
+        action="append",
+        dest="endpoints",
+        help="Add endpoint path (e.g., /api/users). Use multiple for random selection",
+    )
+    parser.add_argument(
+        "--slow-duration",
+        type=int,
+        default=60,
+        help="Duration for slow request mode in seconds (default: 60)",
     )
 
     args = parser.parse_args()
@@ -277,6 +375,8 @@ def main():
         mode=args.mode,
         no_ssl_verify=args.no_ssl_verify,
         headers=headers if headers else None,
+        endpoints=args.endpoints,
+        slow_duration=args.slow_duration,
     )
     tester.run()
 
