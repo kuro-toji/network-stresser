@@ -62,6 +62,7 @@ class LoadTester:
         http_version=None,
         host_header=None,
         cache_bypass=False,
+        gzip_bomb=False,
     ):
         if config:
             with open(config, "r") as f:
@@ -95,6 +96,7 @@ class LoadTester:
                 http_version = cfg.get("http_version", http_version)
                 host_header = cfg.get("host_header", host_header)
                 cache_bypass = cfg.get("cache_bypass", cache_bypass)
+                gzip_bomb = cfg.get("gzip_bomb", gzip_bomb)
                 rps = cfg.get("rps", rps)
                 client_cert = cfg.get("client_cert", client_cert)
                 client_key = cfg.get("client_key", client_key)
@@ -141,6 +143,7 @@ class LoadTester:
         self.http_version = http_version
         self.host_header = host_header
         self.cache_bypass = cache_bypass
+        self.gzip_bomb = gzip_bomb
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -350,6 +353,12 @@ class LoadTester:
                 kwargs["headers"]["Host"] = self.host_header
             if self.data:
                 kwargs["data"] = self.data
+            if self.gzip_bomb:
+                import gzip
+
+                bomb = gzip.compress(b"X" * 10240)
+                kwargs["data"] = bomb
+                kwargs["headers"]["Content-Encoding"] = "gzip"
             if self.proxy:
                 kwargs["proxies"] = {"http": self.proxy, "https": self.proxy}
             if self.client_cert:
@@ -811,6 +820,8 @@ class LoadTester:
             print(f"    Host Header: {self.host_header}")
         if self.cache_bypass:
             print(f"    Cache Bypass: enabled")
+        if self.gzip_bomb:
+            print(f"    GZIP Bomb: enabled")
 
         start_time = time.time()
 
@@ -1258,6 +1269,11 @@ def main():
         action="store_true",
         help="Add random query params to bypass CDN cache",
     )
+    parser.add_argument(
+        "--gzip-bomb",
+        action="store_true",
+        help="Send gzip bomb payload to test decompression",
+    )
 
     args = parser.parse_args()
 
@@ -1306,6 +1322,7 @@ def main():
         http_version=args.http_version,
         host_header=args.host_header,
         cache_bypass=args.cache_bypass,
+        gzip_bomb=args.gzip_bomb,
     )
     tester.run()
 
