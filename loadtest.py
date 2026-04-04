@@ -42,7 +42,32 @@ class LoadTester:
         ws=False,
         pipeline=1,
         malformed=0,
+        config=None,
     ):
+        if config:
+            with open(config, "r") as f:
+                cfg = json.load(f)
+                url = cfg.get("url", url)
+                total_requests = cfg.get("requests", total_requests)
+                concurrency = cfg.get("concurrency", concurrency)
+                method = cfg.get("method", method)
+                mode = cfg.get("mode", mode)
+                no_ssl_verify = cfg.get("no_ssl_verify", no_ssl_verify)
+                headers = cfg.get("headers", headers)
+                data = cfg.get("data", data)
+                slow_duration = cfg.get("slow_duration", slow_duration)
+                endpoints = cfg.get("endpoints", endpoints)
+                protocol = cfg.get("protocol", protocol)
+                output = cfg.get("output", output)
+                proxy = cfg.get("proxy", proxy)
+                rps = cfg.get("rps", rps)
+                client_cert = cfg.get("client_cert", client_cert)
+                client_key = cfg.get("client_key", client_key)
+                tls_version = cfg.get("tls_version", tls_version)
+                ws = cfg.get("ws", ws)
+                pipeline = cfg.get("pipeline", pipeline)
+                malformed = cfg.get("malformed", malformed)
+
         self.url = url
         self.total_requests = total_requests
         self.concurrency = concurrency
@@ -803,6 +828,10 @@ def main():
         "--proxy",
         help="Proxy URL (e.g., http://127.0.0.1:8080)",
     )
+    parser.add_argument(
+        "--config",
+        help="Load configuration from JSON file",
+    )
 
     args = parser.parse_args()
 
@@ -833,6 +862,7 @@ def main():
         ws=args.ws,
         pipeline=args.pipeline,
         malformed=args.malformed,
+        config=args.config,
     )
     tester.run()
 
