@@ -3,12 +3,10 @@ import argparse
 import time
 import threading
 import random
-import socket
 import requests
 import httpx
 import json
 import csv
-from datetime import datetime
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -55,8 +53,12 @@ class LoadTester:
         self.lock = threading.Lock()
         self.running = True
         self.request_count = 0
-        self.connections = []
         self.last_request_time = 0
+
+    def validate_url(self):
+        allowed_schemes = ("http", "https")
+        if not self.url.startswith(allowed_schemes):
+            raise ValueError(f"Invalid URL scheme. Only {allowed_schemes} are allowed.")
 
     def make_request(self):
         if self.rps > 0:
@@ -341,6 +343,13 @@ class LoadTester:
             self.request_count += 1
 
     def run(self):
+        self.validate_url()
+
+        if self.no_ssl_verify:
+            print(
+                "\n[!] WARNING: SSL verification is disabled. This is insecure and vulnerable to MITM attacks."
+            )
+
         print(f"\n[*] Starting {self.mode.upper()} test: {self.url}")
         print(f"    Total requests: {self.total_requests}")
         print(f"    Concurrency: {self.concurrency}")
