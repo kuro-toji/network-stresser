@@ -5,6 +5,7 @@ import threading
 import random
 import socket
 import requests
+import httpx
 from datetime import datetime
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -23,6 +24,7 @@ class LoadTester:
         data=None,
         slow_duration=60,
         endpoints=None,
+        protocol="http1",
     ):
         self.url = url
         self.total_requests = total_requests
@@ -34,6 +36,7 @@ class LoadTester:
         self.data = data
         self.slow_duration = slow_duration
         self.endpoints = endpoints or []
+        self.protocol = protocol
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -50,7 +53,9 @@ class LoadTester:
             if self.data:
                 kwargs["data"] = self.data
 
-            if self.method == "GET":
+            if self.protocol == "h2":
+                response = self.make_httpx_request(target_url, kwargs)
+            elif self.method == "GET":
                 response = requests.get(target_url, **kwargs)
             else:
                 response = requests.post(target_url, **kwargs)
@@ -87,6 +92,10 @@ class LoadTester:
                 )
 
     def saturation_worker(self):
+        if self.protocol == "h2":
+            self.saturation_worker_httpx()
+            return
+
         session = requests.Session()
         adapter = HTTPAdapter(
             pool_connections=self.concurrency,
@@ -144,6 +153,63 @@ class LoadTester:
                     self.results["errors"][str(type(e).__name__)] = (
                         self.results["errors"].get(str(type(e).__name__), 0) + 1
                     )
+
+    def saturation_worker_httpx(self):
+        transport = httpx.HTTPTransport(retries=0)
+        client = httpx.Client(
+            transport=transport, verify=not self.no_ssl_verify, http2=True
+        )
+
+        while self.running:
+            try:
+                target_url = self.get_target_url()
+                start = time.time()
+                kwargs = {"timeout": 30}
+                if self.headers:
+                    kwargs["headers"] = self.headers
+                if self.data:
+                    kwargs["content"] = self.data
+
+                if self.method == "GET":
+                    response = client.get(target_url, **kwargs)
+                else:
+                    response = client.post(target_url, **kwargs)
+
+                elapsed = time.time() - start
+
+                with self.lock:
+                    if 200 <= response.status_code < 300:
+                        self.results["success"] += 1
+                    else:
+                        self.results["failed"] += 1
+                        self.results["errors"][f"HTTP {response.status_code}"] = (
+                            self.results["errors"].get(
+                                f"HTTP {response.status_code}", 0
+                            )
+                            + 1
+                        )
+                    self.results["response_times"].append(elapsed)
+
+            except httpx.TimeoutException:
+                with self.lock:
+                    self.results["failed"] += 1
+                    self.results["errors"]["Timeout"] = (
+                        self.results["errors"].get("Timeout", 0) + 1
+                    )
+            except httpx.ConnectError:
+                with self.lock:
+                    self.results["failed"] += 1
+                    self.results["errors"]["Connection Error"] = (
+                        self.results["errors"].get("Connection Error", 0) + 1
+                    )
+            except Exception as e:
+                with self.lock:
+                    self.results["failed"] += 1
+                    self.results["errors"][str(type(e).__name__)] = (
+                        self.results["errors"].get(str(type(e).__name__), 0) + 1
+                    )
+
+        client.close()
 
     def slow_worker(self):
         session = requests.Session()
@@ -208,6 +274,18 @@ class LoadTester:
             return path
         return self.url
 
+    def make_httpx_request(self, target_url, kwargs):
+        transport = httpx.HTTPTransport(retries=0)
+        client = httpx.Client(transport=transport, verify=not self.no_ssl_verify)
+        try:
+            if self.method == "GET":
+                response = client.get(target_url, **kwargs)
+            else:
+                response = client.post(target_url, **kwargs)
+            return response
+        finally:
+            client.close()
+
     def worker(self, count):
         for _ in range(count):
             if not self.running:
@@ -221,6 +299,7 @@ class LoadTester:
         print(f"    Concurrency: {self.concurrency}")
         print(f"    Method: {self.method}")
         print(f"    Mode: {self.mode}")
+        print(f"    Protocol: {self.protocol.upper()}")
         if self.endpoints:
             print(f"    Endpoints: {self.endpoints}")
         if self.mode == "slow":
@@ -335,6 +414,13 @@ def main():
         help="Test mode: flood (high requests), saturation (connection pool exhaustion), slow (long-duration requests)",
     )
     parser.add_argument(
+        "-p",
+        "--protocol",
+        default="http1",
+        choices=["http1", "h2"],
+        help="HTTP protocol: http1 (HTTP/1.1) or h2 (HTTP/2)",
+    )
+    parser.add_argument(
         "--no-ssl-verify", action="store_true", help="Disable SSL verification"
     )
     parser.add_argument(
@@ -377,6 +463,7 @@ def main():
         headers=headers if headers else None,
         endpoints=args.endpoints,
         slow_duration=args.slow_duration,
+        protocol=args.protocol,
     )
     tester.run()
 

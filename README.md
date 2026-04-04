@@ -8,6 +8,7 @@ A powerful yet simple Python-based load testing tool to evaluate web server perf
 - **Connection Saturation** - Many concurrent connections to exhaust connection pools
 - **Slow Request** - Long-duration requests for legitimate timeout testing
 - **Random Endpoints** - Test multiple routes with random selection
+- **HTTP/2 Support** - HTTP/2 protocol for multiplexed connections
 - **Multiple HTTP Methods** - GET and POST support
 - **Custom Headers** - Add authentication, cookies, etc.
 - **SSL Control** - Toggle SSL verification
@@ -63,6 +64,16 @@ python loadtest.py http://localhost:8080 -e /api/users -e /api/login -e /admin -
 python loadtest.py http://localhost:8080 --mode saturation -e /api/v1/* -e /admin -c 100
 ```
 
+### HTTP/2 Mode
+
+```bash
+# HTTP/2 with multiplexed connections
+python loadtest.py http://localhost:8080 -p h2 -c 50 -n 5000
+
+# HTTP/2 with saturation mode
+python loadtest.py http://localhost:8080 --mode saturation -p h2 -c 100
+```
+
 ### Options
 
 | Option | Description | Default |
@@ -72,6 +83,7 @@ python loadtest.py http://localhost:8080 --mode saturation -e /api/v1/* -e /admi
 | `-c, --concurrency` | Concurrent threads | 10 |
 | `-m, --method` | HTTP method (GET/POST) | GET |
 | `--mode` | Test mode (flood/saturation/slow) | flood |
+| `-p, --protocol` | HTTP protocol (http1/h2) | http1 |
 | `-e, --endpoint` | Endpoint path for random selection | None |
 | `--slow-duration` | Duration for slow mode (seconds) | 60 |
 | `-H, --header` | Custom header (key:value) | None |
