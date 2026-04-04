@@ -11,6 +11,8 @@ import socket
 import hashlib
 import base64
 import os
+import struct
+import random
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -49,6 +51,8 @@ class LoadTester:
         auth_token=None,
         session_cookie=None,
         tls_cipher=None,
+        udp_flood=False,
+        raw_socket=False,
     ):
         if config:
             with open(config, "r") as f:
@@ -71,6 +75,8 @@ class LoadTester:
                 auth_token = cfg.get("auth_token", auth_token)
                 session_cookie = cfg.get("session_cookie", session_cookie)
                 tls_cipher = cfg.get("tls_cipher", tls_cipher)
+                udp_flood = cfg.get("udp_flood", udp_flood)
+                raw_socket = cfg.get("raw_socket", raw_socket)
                 rps = cfg.get("rps", rps)
                 client_cert = cfg.get("client_cert", client_cert)
                 client_key = cfg.get("client_key", client_key)
@@ -106,6 +112,8 @@ class LoadTester:
         self.auth_token = auth_token
         self.session_cookie = session_cookie
         self.tls_cipher = tls_cipher
+        self.udp_flood = udp_flood
+        self.raw_socket = raw_socket
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -113,9 +121,69 @@ class LoadTester:
         self.last_request_time = 0
 
     def validate_url(self):
-        allowed_schemes = ("http", "https")
+        if self.udp_flood or self.raw_socket:
+            return
+        allowed_schemes = ("http", "https", "ws", "wss")
         if not self.url.startswith(allowed_schemes):
             raise ValueError(f"Invalid URL scheme. Only {allowed_schemes} are allowed.")
+
+    def udp_worker(self):
+        try:
+            parsed = httpx.URL(self.url)
+            host = parsed.host
+            port = parsed.port or 80
+        except:
+            host, port = (
+                self.url.split(":")[0],
+                int(self.url.split(":")[1]) if ":" in self.url else 80,
+            )
+
+        payload = b"X" * 1400
+
+        while self.running:
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.sendto(payload, (host, port))
+                sock.close()
+                with self.lock:
+                    self.results["success"] += 1
+            except Exception as e:
+                with self.lock:
+                    self.results["failed"] += 1
+                    self.results["errors"][str(type(e).__name__)] = (
+                        self.results["errors"].get(str(type(e).__name__), 0) + 1
+                    )
+
+    def raw_tcp_worker(self):
+        try:
+            parsed = httpx.URL(self.url)
+            host = parsed.host
+            port = parsed.port or 80
+            path = parsed.path or "/"
+        except:
+            host, port = (
+                self.url.split(":")[0],
+                int(self.url.split(":")[1]) if ":" in self.url else 80,
+            )
+            path = "/"
+
+        while self.running:
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(5)
+                sock.connect((host, port))
+                req = f"GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n"
+                sock.send(req.encode())
+                sock.recv(1024)
+                sock.close()
+                with self.lock:
+                    self.results["success"] += 1
+            except Exception as e:
+                with self.lock:
+                    self.results["failed"] += 1
+                    self.results["errors"][str(type(e).__name__)] = (
+                        self.results["errors"].get(str(type(e).__name__), 0) + 1
+                    )
 
     def make_request(self):
         if self.rps > 0:
@@ -587,10 +655,38 @@ class LoadTester:
             print(f"    Endpoints: {self.endpoints}")
         if self.mode == "slow":
             print(f"    Slow duration: {self.slow_duration}s")
+        if self.udp_flood:
+            print(f"    UDP Flood: enabled")
+        if self.raw_socket:
+            print(f"    Raw Socket: enabled")
 
         start_time = time.time()
 
-        if self.ws:
+        if self.udp_flood:
+            threads = []
+            for _ in range(self.concurrency):
+                t = threading.Thread(target=self.udp_worker)
+                t.start()
+                threads.append(t)
+
+            time.sleep(self.total_requests / 100)
+
+            self.running = False
+            for t in threads:
+                t.join()
+        elif self.raw_socket:
+            threads = []
+            for _ in range(self.concurrency):
+                t = threading.Thread(target=self.raw_tcp_worker)
+                t.start()
+                threads.append(t)
+
+            time.sleep(self.total_requests / 100)
+
+            self.running = False
+            for t in threads:
+                t.join()
+        elif self.ws:
             threads = []
             for _ in range(self.concurrency):
                 t = threading.Thread(target=self.ws_worker)
@@ -896,6 +992,16 @@ def main():
         "--tls-cipher",
         help="TLS cipher suite (e.g., ECDHE-RSA-AES256-GCM-SHA384)",
     )
+    parser.add_argument(
+        "--udp-flood",
+        action="store_true",
+        help="UDP flood mode (for non-HTTP services)",
+    )
+    parser.add_argument(
+        "--raw-socket",
+        action="store_true",
+        help="Raw TCP socket mode (direct connection)",
+    )
 
     args = parser.parse_args()
 
@@ -933,6 +1039,8 @@ def main():
         auth_token=args.auth_token,
         session_cookie=args.session_cookie,
         tls_cipher=args.tls_cipher,
+        udp_flood=args.udp_flood,
+        raw_socket=args.raw_socket,
     )
     tester.run()
 
