@@ -63,6 +63,7 @@ class LoadTester:
         host_header=None,
         cache_bypass=False,
         gzip_bomb=False,
+        quic=False,
         throttle_kbps=0,
         targets=None,
         follow_redirects=True,
@@ -102,6 +103,7 @@ class LoadTester:
                 host_header = cfg.get("host_header", host_header)
                 cache_bypass = cfg.get("cache_bypass", cache_bypass)
                 gzip_bomb = cfg.get("gzip_bomb", gzip_bomb)
+                quic = cfg.get("quic", quic)
                 throttle_kbps = cfg.get("throttle_kbps", throttle_kbps)
                 targets = cfg.get("targets", targets)
                 follow_redirects = cfg.get("follow_redirects", follow_redirects)
@@ -153,6 +155,7 @@ class LoadTester:
         self.host_header = host_header
         self.cache_bypass = cache_bypass
         self.gzip_bomb = gzip_bomb
+        self.quic = quic
         self.throttle_kbps = throttle_kbps
         self.targets = targets or []
         self.follow_redirects = follow_redirects
@@ -400,8 +403,8 @@ class LoadTester:
                     else (self.client_cert, self.client_key)
                 )
 
-            if self.protocol == "h2":
-                response = self.make_httpx_request(target_url, kwargs)
+            if self.protocol == "h2" or self.quic:
+                response = self.make_httpx_request(target_url, kwargs, http3=self.quic)
             elif self.method == "GET":
                 response = requests.get(
                     target_url, allow_redirects=self.follow_redirects, **kwargs
@@ -774,15 +777,18 @@ class LoadTester:
 
         return self.url
 
-    def make_httpx_request(self, target_url, kwargs):
+    def make_httpx_request(self, target_url, kwargs, http3=False):
         transport = httpx.HTTPTransport(retries=0)
         proxies = (
             {"http://": self.proxy, "https://": self.proxy} if self.proxy else None
         )
-        client = httpx.Client(
-            transport=transport, verify=not self.no_ssl_verify, proxies=proxies
-        )
         try:
+            client = httpx.Client(
+                transport=transport,
+                verify=not self.no_ssl_verify,
+                proxies=proxies,
+                http2=not http3,
+            )
             if self.method == "GET":
                 response = client.get(target_url, **kwargs)
             else:
@@ -830,6 +836,8 @@ class LoadTester:
             print(f"    Proxy Chain: {len(self.proxy_chain)} proxies")
         if self.tor_proxy:
             print(f"    Tor Proxy: {self.tor_proxy}")
+        if self.quic:
+            print(f"    QUIC: enabled")
         if self.rps > 0:
             print(f"    RPS limit: {self.rps}")
         if self.pipeline > 1:
@@ -1257,6 +1265,11 @@ def main():
         help="Tor proxy port (default: 9050)",
     )
     parser.add_argument(
+        "--quic",
+        action="store_true",
+        help="QUIC protocol (HTTP/3) support",
+    )
+    parser.add_argument(
         "--auth-type",
         choices=["bearer", "basic", "jwt"],
         help="Authentication type: bearer (token), basic (username:password), jwt",
@@ -1409,6 +1422,7 @@ def main():
         targets=targets if "targets" in dir() else None,
         follow_redirects=not args.no_follow_redirects,
         tor_proxy=f"127.0.0.1:{args.tor_port}" if args.tor else None,
+        quic=args.quic,
     )
     tester.run()
 
