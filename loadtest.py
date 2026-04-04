@@ -6,6 +6,8 @@ import random
 import socket
 import requests
 import httpx
+import json
+import csv
 from datetime import datetime
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -25,6 +27,8 @@ class LoadTester:
         slow_duration=60,
         endpoints=None,
         protocol="http1",
+        output=None,
+        proxy=None,
     ):
         self.url = url
         self.total_requests = total_requests
@@ -37,6 +41,8 @@ class LoadTester:
         self.slow_duration = slow_duration
         self.endpoints = endpoints or []
         self.protocol = protocol
+        self.output = output
+        self.proxy = proxy
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -52,6 +58,8 @@ class LoadTester:
                 kwargs["headers"] = self.headers
             if self.data:
                 kwargs["data"] = self.data
+            if self.proxy:
+                kwargs["proxies"] = {"http": self.proxy, "https": self.proxy}
 
             if self.protocol == "h2":
                 response = self.make_httpx_request(target_url, kwargs)
@@ -114,6 +122,8 @@ class LoadTester:
                     kwargs["headers"] = self.headers
                 if self.data:
                     kwargs["data"] = self.data
+                if self.proxy:
+                    kwargs["proxies"] = {"http": self.proxy, "https": self.proxy}
 
                 if self.method == "GET":
                     response = session.get(target_url, **kwargs)
@@ -276,7 +286,12 @@ class LoadTester:
 
     def make_httpx_request(self, target_url, kwargs):
         transport = httpx.HTTPTransport(retries=0)
-        client = httpx.Client(transport=transport, verify=not self.no_ssl_verify)
+        proxies = (
+            {"http://": self.proxy, "https://": self.proxy} if self.proxy else None
+        )
+        client = httpx.Client(
+            transport=transport, verify=not self.no_ssl_verify, proxies=proxies
+        )
         try:
             if self.method == "GET":
                 response = client.get(target_url, **kwargs)
@@ -300,6 +315,8 @@ class LoadTester:
         print(f"    Method: {self.method}")
         print(f"    Mode: {self.mode}")
         print(f"    Protocol: {self.protocol.upper()}")
+        if self.proxy:
+            print(f"    Proxy: {self.proxy}")
         if self.endpoints:
             print(f"    Endpoints: {self.endpoints}")
         if self.mode == "slow":
@@ -386,6 +403,72 @@ class LoadTester:
 
         print("=" * 50)
 
+        if self.output:
+            self.export_results(duration, rps, total)
+
+    def export_results(self, duration, rps, total):
+        if self.output == "json":
+            with open(f"results_{int(time.time())}.json", "w") as f:
+                json.dump(
+                    {
+                        "mode": self.mode,
+                        "url": self.url,
+                        "duration": round(duration, 2),
+                        "total_requests": total,
+                        "rps": round(rps, 2),
+                        "success": self.results["success"],
+                        "failed": self.results["failed"],
+                        "avg_response_ms": round(
+                            sum(self.results["response_times"])
+                            / len(self.results["response_times"])
+                            * 1000,
+                            2,
+                        )
+                        if self.results["response_times"]
+                        else 0,
+                        "errors": self.results["errors"],
+                    },
+                    f,
+                    indent=2,
+                )
+            print(f"\n[+] Results exported to results_{int(time.time())}.json")
+        elif self.output == "csv":
+            filename = f"results_{int(time.time())}.csv"
+            with open(filename, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(
+                    [
+                        "mode",
+                        "url",
+                        "duration",
+                        "total_requests",
+                        "rps",
+                        "success",
+                        "failed",
+                        "avg_response_ms",
+                    ]
+                )
+                avg_resp = (
+                    sum(self.results["response_times"])
+                    / len(self.results["response_times"])
+                    * 1000
+                    if self.results["response_times"]
+                    else 0
+                )
+                writer.writerow(
+                    [
+                        self.mode,
+                        self.url,
+                        round(duration, 2),
+                        total,
+                        round(rps, 2),
+                        self.results["success"],
+                        self.results["failed"],
+                        round(avg_resp, 2),
+                    ]
+                )
+            print(f"\n[+] Results exported to {filename}")
+
 
 def main():
     parser = argparse.ArgumentParser(description="Network Stresser - Load Testing Tool")
@@ -443,6 +526,16 @@ def main():
         default=60,
         help="Duration for slow request mode in seconds (default: 60)",
     )
+    parser.add_argument(
+        "-o",
+        "--output",
+        choices=["json", "csv"],
+        help="Export results to file (json or csv)",
+    )
+    parser.add_argument(
+        "--proxy",
+        help="Proxy URL (e.g., http://127.0.0.1:8080)",
+    )
 
     args = parser.parse_args()
 
@@ -464,6 +557,8 @@ def main():
         endpoints=args.endpoints,
         slow_duration=args.slow_duration,
         protocol=args.protocol,
+        output=args.output,
+        proxy=args.proxy,
     )
     tester.run()
 

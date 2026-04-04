@@ -9,6 +9,8 @@ A powerful yet simple Python-based load testing tool to evaluate web server perf
 - **Slow Request** - Long-duration requests for legitimate timeout testing
 - **Random Endpoints** - Test multiple routes with random selection
 - **HTTP/2 Support** - HTTP/2 protocol for multiplexed connections
+- **Proxy Support** - Route traffic through proxies for evasion
+- **JSON/CSV Export** - Save results to file for analysis
 - **Multiple HTTP Methods** - GET and POST support
 - **Custom Headers** - Add authentication, cookies, etc.
 - **SSL Control** - Toggle SSL verification
@@ -74,6 +76,26 @@ python loadtest.py http://localhost:8080 -p h2 -c 50 -n 5000
 python loadtest.py http://localhost:8080 --mode saturation -p h2 -c 100
 ```
 
+### Proxy Support
+
+```bash
+# Route traffic through proxy
+python loadtest.py http://target.com --proxy http://127.0.0.1:8080 -c 50
+
+# Combine with any mode
+python loadtest.py http://target.com --mode saturation --proxy http://proxy:3128 -c 100
+```
+
+### Export Results
+
+```bash
+# Export to JSON
+python loadtest.py http://localhost:8080 -o json -n 10000
+
+# Export to CSV
+python loadtest.py http://localhost:8080 -o csv -n 10000
+```
+
 ### Options
 
 | Option | Description | Default |
@@ -86,6 +108,8 @@ python loadtest.py http://localhost:8080 --mode saturation -p h2 -c 100
 | `-p, --protocol` | HTTP protocol (http1/h2) | http1 |
 | `-e, --endpoint` | Endpoint path for random selection | None |
 | `--slow-duration` | Duration for slow mode (seconds) | 60 |
+| `-o, --output` | Export format (json/csv) | None |
+| `--proxy` | Proxy URL | None |
 | `-H, --header` | Custom header (key:value) | None |
 | `--no-ssl-verify` | Disable SSL verification | False |
 
