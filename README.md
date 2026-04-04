@@ -11,6 +11,9 @@ A powerful yet simple Python-based load testing tool to evaluate web server perf
 - **HTTP/2 Support** - HTTP/2 protocol for multiplexed connections
 - **Proxy Support** - Route traffic through proxies for evasion
 - **JSON/CSV Export** - Save results to file for analysis
+- **Rate Limiting** - Custom RPS throttling per thread
+- **Client Certificates** - SSL client cert/key support
+- **TLS Version Control** - Minimum TLS version selection
 - **Multiple HTTP Methods** - GET and POST support
 - **Custom Headers** - Add authentication, cookies, etc.
 - **SSL Control** - Toggle SSL verification
@@ -96,6 +99,23 @@ python loadtest.py http://localhost:8080 -o json -n 10000
 python loadtest.py http://localhost:8080 -o csv -n 10000
 ```
 
+### Rate Limiting
+
+```bash
+# Limit to 100 RPS
+python loadtest.py http://localhost:8080 --rps 100 -n 5000
+```
+
+### SSL Options
+
+```bash
+# Client certificate authentication
+python loadtest.py https://localhost:8080 --client-cert cert.pem --client-key key.pem
+
+# Minimum TLS version
+python loadtest.py https://localhost:8080 --tls-version TLSv1.2
+```
+
 ### Options
 
 | Option | Description | Default |
@@ -109,6 +129,10 @@ python loadtest.py http://localhost:8080 -o csv -n 10000
 | `-e, --endpoint` | Endpoint path for random selection | None |
 | `--slow-duration` | Duration for slow mode (seconds) | 60 |
 | `-o, --output` | Export format (json/csv) | None |
+| `--rps` | Max requests per second | 0 (unlimited) |
+| `--client-cert` | Path to client certificate | None |
+| `--client-key` | Path to client key | None |
+| `--tls-version` | Minimum TLS version | None |
 | `--proxy` | Proxy URL | None |
 | `-H, --header` | Custom header (key:value) | None |
 | `--no-ssl-verify` | Disable SSL verification | False |

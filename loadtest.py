@@ -29,6 +29,10 @@ class LoadTester:
         protocol="http1",
         output=None,
         proxy=None,
+        rps=0,
+        client_cert=None,
+        client_key=None,
+        tls_version=None,
     ):
         self.url = url
         self.total_requests = total_requests
@@ -43,13 +47,26 @@ class LoadTester:
         self.protocol = protocol
         self.output = output
         self.proxy = proxy
+        self.rps = rps
+        self.client_cert = client_cert
+        self.client_key = client_key
+        self.tls_version = tls_version
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
         self.request_count = 0
         self.connections = []
+        self.last_request_time = 0
 
     def make_request(self):
+        if self.rps > 0:
+            with self.lock:
+                now = time.time()
+                min_interval = 1.0 / self.rps
+                if now - self.last_request_time < min_interval:
+                    time.sleep(min_interval - (now - self.last_request_time))
+                self.last_request_time = time.time()
+
         start = time.time()
         try:
             target_url = self.get_target_url()
@@ -60,6 +77,12 @@ class LoadTester:
                 kwargs["data"] = self.data
             if self.proxy:
                 kwargs["proxies"] = {"http": self.proxy, "https": self.proxy}
+            if self.client_cert:
+                kwargs["cert"] = (
+                    self.client_cert
+                    if not self.client_key
+                    else (self.client_cert, self.client_key)
+                )
 
             if self.protocol == "h2":
                 response = self.make_httpx_request(target_url, kwargs)
@@ -124,6 +147,12 @@ class LoadTester:
                     kwargs["data"] = self.data
                 if self.proxy:
                     kwargs["proxies"] = {"http": self.proxy, "https": self.proxy}
+                if self.client_cert:
+                    kwargs["cert"] = (
+                        self.client_cert
+                        if not self.client_key
+                        else (self.client_cert, self.client_key)
+                    )
 
                 if self.method == "GET":
                     response = session.get(target_url, **kwargs)
@@ -165,7 +194,10 @@ class LoadTester:
                     )
 
     def saturation_worker_httpx(self):
-        transport = httpx.HTTPTransport(retries=0)
+        proxies = (
+            {"http://": self.proxy, "https://": self.proxy} if self.proxy else None
+        )
+        transport = httpx.HTTPTransport(retries=0, proxies=proxies)
         client = httpx.Client(
             transport=transport, verify=not self.no_ssl_verify, http2=True
         )
@@ -317,6 +349,8 @@ class LoadTester:
         print(f"    Protocol: {self.protocol.upper()}")
         if self.proxy:
             print(f"    Proxy: {self.proxy}")
+        if self.rps > 0:
+            print(f"    RPS limit: {self.rps}")
         if self.endpoints:
             print(f"    Endpoints: {self.endpoints}")
         if self.mode == "slow":
@@ -533,6 +567,25 @@ def main():
         help="Export results to file (json or csv)",
     )
     parser.add_argument(
+        "--rps",
+        type=int,
+        default=0,
+        help="Max requests per second (0 = unlimited)",
+    )
+    parser.add_argument(
+        "--client-cert",
+        help="Path to client certificate file",
+    )
+    parser.add_argument(
+        "--client-key",
+        help="Path to client key file",
+    )
+    parser.add_argument(
+        "--tls-version",
+        choices=["TLSv1", "TLSv1.1", "TLSv1.2", "TLSv1.3"],
+        help="Minimum TLS version",
+    )
+    parser.add_argument(
         "--proxy",
         help="Proxy URL (e.g., http://127.0.0.1:8080)",
     )
@@ -559,6 +612,10 @@ def main():
         protocol=args.protocol,
         output=args.output,
         proxy=args.proxy,
+        rps=args.rps,
+        client_cert=args.client_cert,
+        client_key=args.client_key,
+        tls_version=args.tls_version,
     )
     tester.run()
 
