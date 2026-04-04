@@ -54,6 +54,7 @@ class LoadTester:
         udp_flood=False,
         raw_socket=False,
         http_smuggling=None,
+        range_test=False,
     ):
         if config:
             with open(config, "r") as f:
@@ -79,6 +80,7 @@ class LoadTester:
                 udp_flood = cfg.get("udp_flood", udp_flood)
                 raw_socket = cfg.get("raw_socket", raw_socket)
                 http_smuggling = cfg.get("http_smuggling", http_smuggling)
+                range_test = cfg.get("range_test", range_test)
                 rps = cfg.get("rps", rps)
                 client_cert = cfg.get("client_cert", client_cert)
                 client_key = cfg.get("client_key", client_key)
@@ -117,6 +119,7 @@ class LoadTester:
         self.udp_flood = udp_flood
         self.raw_socket = raw_socket
         self.http_smuggling = http_smuggling
+        self.range_test = range_test
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -249,6 +252,42 @@ class LoadTester:
                     self.results["errors"][str(type(e).__name__)] = (
                         self.results["errors"].get(str(type(e).__name__), 0) + 1
                     )
+
+    def range_worker(self):
+        try:
+            parsed = httpx.URL(self.url)
+            host = parsed.host
+            port = parsed.port or 80
+            path = parsed.path or "/"
+        except:
+            return
+
+        while self.running:
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(10)
+                sock.connect((host, port))
+
+                ranges = [
+                    f"bytes=0-",
+                    f"bytes=0-100",
+                    f"bytes=100-200",
+                    f"bytes=-100",
+                    f"bytes=0-99,200-299",
+                ]
+                for r in ranges:
+                    req = f"GET {path} HTTP/1.1\r\nHost: {host}\r\nRange: {r}\r\n\r\n"
+                    sock.send(req.encode())
+                    resp = sock.recv(4096)
+
+                sock.close()
+
+                with self.lock:
+                    self.results["success"] += 1
+
+            except Exception as e:
+                with self.lock:
+                    self.results["failed"] += 1
 
     def make_request(self):
         if self.rps > 0:
@@ -765,6 +804,18 @@ class LoadTester:
             self.running = False
             for t in threads:
                 t.join()
+        elif self.range_test:
+            threads = []
+            for _ in range(self.concurrency):
+                t = threading.Thread(target=self.range_worker)
+                t.start()
+                threads.append(t)
+
+            time.sleep(self.total_requests / 100)
+
+            self.running = False
+            for t in threads:
+                t.join()
         elif self.ws:
             threads = []
             for _ in range(self.concurrency):
@@ -1086,6 +1137,11 @@ def main():
         choices=["te-cl", "cl-te", "te-content"],
         help="HTTP request smuggling: te-cl (TEO+CL), cl-te (CL+TEO), te-content",
     )
+    parser.add_argument(
+        "--range-test",
+        action="store_true",
+        help="Test Range header (partial content requests)",
+    )
 
     args = parser.parse_args()
 
@@ -1126,6 +1182,7 @@ def main():
         udp_flood=args.udp_flood,
         raw_socket=args.raw_socket,
         http_smuggling=args.http_smuggling,
+        range_test=args.range_test,
     )
     tester.run()
 
