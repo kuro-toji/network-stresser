@@ -8,11 +8,9 @@ import httpx
 import json
 import csv
 import socket
-import hashlib
 import base64
 import os
 import struct
-import random
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
