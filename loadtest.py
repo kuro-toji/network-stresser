@@ -43,6 +43,7 @@ class LoadTester:
         pipeline=1,
         malformed=0,
         config=None,
+        real_time=False,
     ):
         if config:
             with open(config, "r") as f:
@@ -67,6 +68,7 @@ class LoadTester:
                 ws = cfg.get("ws", ws)
                 pipeline = cfg.get("pipeline", pipeline)
                 malformed = cfg.get("malformed", malformed)
+                real_time = cfg.get("real_time", real_time)
 
         self.url = url
         self.total_requests = total_requests
@@ -88,6 +90,7 @@ class LoadTester:
         self.ws = ws
         self.pipeline = pipeline
         self.malformed = malformed
+        self.real_time = real_time
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -516,6 +519,11 @@ class LoadTester:
                 break
             self.make_request()
             self.request_count += 1
+            if self.real_time and self.request_count % 100 == 0:
+                with self.lock:
+                    print(
+                        f"    [+] Requests: {self.request_count}, Success: {self.results['success']}, Failed: {self.results['failed']}"
+                    )
 
     def run(self):
         self.validate_url()
@@ -832,6 +840,11 @@ def main():
         "--config",
         help="Load configuration from JSON file",
     )
+    parser.add_argument(
+        "--real-time",
+        action="store_true",
+        help="Show real-time progress updates",
+    )
 
     args = parser.parse_args()
 
@@ -863,6 +876,7 @@ def main():
         pipeline=args.pipeline,
         malformed=args.malformed,
         config=args.config,
+        real_time=args.real_time,
     )
     tester.run()
 
