@@ -41,6 +41,7 @@ class LoadTester:
         tls_version=None,
         ws=False,
         pipeline=1,
+        malformed=0,
     ):
         self.url = url
         self.total_requests = total_requests
@@ -61,6 +62,7 @@ class LoadTester:
         self.tls_version = tls_version
         self.ws = ws
         self.pipeline = pipeline
+        self.malformed = malformed
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -85,6 +87,14 @@ class LoadTester:
         try:
             target_url = self.get_target_url()
             kwargs = {"timeout": 10, "verify": not self.no_ssl_verify}
+
+            if self.malformed > 0:
+                self.send_malformed_request(target_url, kwargs)
+                with self.lock:
+                    self.results["success"] += 1
+                    self.results["response_times"].append(time.time() - start)
+                return
+
             if self.headers:
                 kwargs["headers"] = self.headers
             if self.data:
@@ -421,6 +431,34 @@ class LoadTester:
                         self.results["errors"].get(str(type(e).__name__), 0) + 1
                     )
 
+    def send_malformed_request(self, target_url, kwargs):
+        try:
+            parsed = httpx.URL(target_url)
+            host = parsed.host
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+            path = parsed.path or "/"
+
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            sock.connect((host, port))
+
+            if self.malformed == 1:
+                req = f"GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n"
+            elif self.malformed == 2:
+                req = f"GET {path} HTTP/9.9\r\nHost: {host}\r\n\r\n"
+            elif self.malformed == 3:
+                req = f"GET {path} HTTP/1.1\r\nHost: {host}\r\nInvalid: \r\n\r\n"
+            elif self.malformed == 4:
+                req = f"GET /../etc/passwd HTTP/1.1\r\nHost: {host}\r\n\r\n"
+            else:
+                req = f"GET {path} HTTP/1.1\r\nHost: {host}\r\n\r\n"
+
+            sock.send(req.encode())
+            sock.recv(1024)
+            sock.close()
+        except Exception:
+            pass
+
     def get_target_url(self):
         if self.endpoints:
             path = random.choice(self.endpoints)
@@ -481,6 +519,8 @@ class LoadTester:
             print(f"    RPS limit: {self.rps}")
         if self.pipeline > 1:
             print(f"    Pipeline: {self.pipeline}")
+        if self.malformed > 0:
+            print(f"    Malformed: {self.malformed}")
         if self.endpoints:
             print(f"    Endpoints: {self.endpoints}")
         if self.mode == "slow":
@@ -753,6 +793,13 @@ def main():
         help="Number of requests to send in one connection (HTTP pipelining)",
     )
     parser.add_argument(
+        "--malformed",
+        type=int,
+        default=0,
+        choices=[0, 1, 2, 3, 4],
+        help="Send malformed requests: 1=basic, 2=invalid version, 3=bad header, 4=path traversal",
+    )
+    parser.add_argument(
         "--proxy",
         help="Proxy URL (e.g., http://127.0.0.1:8080)",
     )
@@ -785,6 +832,7 @@ def main():
         tls_version=args.tls_version,
         ws=args.ws,
         pipeline=args.pipeline,
+        malformed=args.malformed,
     )
     tester.run()
 
