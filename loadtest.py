@@ -66,6 +66,7 @@ class LoadTester:
         throttle_kbps=0,
         targets=None,
         follow_redirects=True,
+        tor_proxy=None,
     ):
         if config:
             with open(config, "r") as f:
@@ -84,6 +85,7 @@ class LoadTester:
                 output = cfg.get("output", output)
                 proxy = cfg.get("proxy", proxy)
                 proxy_chain = cfg.get("proxy_chain", proxy_chain)
+                tor_proxy = cfg.get("tor_proxy", tor_proxy)
                 auth_type = cfg.get("auth_type", auth_type)
                 auth_token = cfg.get("auth_token", auth_token)
                 session_cookie = cfg.get("session_cookie", session_cookie)
@@ -134,6 +136,7 @@ class LoadTester:
         self.malformed = malformed
         self.real_time = real_time
         self.proxy_chain = proxy_chain or []
+        self.tor_proxy = tor_proxy
         self.auth_type = auth_type
         self.auth_token = auth_token
         self.session_cookie = session_cookie
@@ -385,6 +388,11 @@ class LoadTester:
                     kwargs["proxies"] = {"http": current_proxy, "https": current_proxy}
                 else:
                     kwargs["proxies"] = {"http": self.proxy, "https": self.proxy}
+            elif self.tor_proxy:
+                kwargs["proxies"] = {
+                    "http": f"http://{self.tor_proxy}",
+                    "https": f"http://{self.tor_proxy}",
+                }
             if self.client_cert:
                 kwargs["cert"] = (
                     self.client_cert
@@ -820,6 +828,8 @@ class LoadTester:
             print(f"    Proxy: {self.proxy}")
         if self.proxy_chain:
             print(f"    Proxy Chain: {len(self.proxy_chain)} proxies")
+        if self.tor_proxy:
+            print(f"    Tor Proxy: {self.tor_proxy}")
         if self.rps > 0:
             print(f"    RPS limit: {self.rps}")
         if self.pipeline > 1:
@@ -1235,6 +1245,18 @@ def main():
         help="Chain multiple proxies (e.g., --proxy-chain http://proxy1:8080 http://proxy2:3128)",
     )
     parser.add_argument(
+        "--tor",
+        "--onion",
+        action="store_true",
+        help="Use Tor proxy (localhost:9050)",
+    )
+    parser.add_argument(
+        "--tor-port",
+        type=int,
+        default=9050,
+        help="Tor proxy port (default: 9050)",
+    )
+    parser.add_argument(
         "--auth-type",
         choices=["bearer", "basic", "jwt"],
         help="Authentication type: bearer (token), basic (username:password), jwt",
@@ -1386,6 +1408,7 @@ def main():
         throttle_kbps=args.throttle,
         targets=targets if "targets" in dir() else None,
         follow_redirects=not args.no_follow_redirects,
+        tor_proxy=f"127.0.0.1:{args.tor_port}" if args.tor else None,
     )
     tester.run()
 
