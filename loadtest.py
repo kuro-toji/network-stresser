@@ -63,6 +63,7 @@ class LoadTester:
         host_header=None,
         cache_bypass=False,
         gzip_bomb=False,
+        throttle_kbps=0,
     ):
         if config:
             with open(config, "r") as f:
@@ -97,6 +98,7 @@ class LoadTester:
                 host_header = cfg.get("host_header", host_header)
                 cache_bypass = cfg.get("cache_bypass", cache_bypass)
                 gzip_bomb = cfg.get("gzip_bomb", gzip_bomb)
+                throttle_kbps = cfg.get("throttle_kbps", throttle_kbps)
                 rps = cfg.get("rps", rps)
                 client_cert = cfg.get("client_cert", client_cert)
                 client_key = cfg.get("client_key", client_key)
@@ -144,6 +146,7 @@ class LoadTester:
         self.host_header = host_header
         self.cache_bypass = cache_bypass
         self.gzip_bomb = gzip_bomb
+        self.throttle_kbps = throttle_kbps
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -320,6 +323,10 @@ class LoadTester:
                 if now - self.last_request_time < min_interval:
                     time.sleep(min_interval - (now - self.last_request_time))
                 self.last_request_time = time.time()
+
+        if self.throttle_kbps > 0:
+            expected_time = (1024 * 8) / (self.throttle_kbps * 1000)
+            time.sleep(expected_time)
 
         start = time.time()
         try:
@@ -822,6 +829,8 @@ class LoadTester:
             print(f"    Cache Bypass: enabled")
         if self.gzip_bomb:
             print(f"    GZIP Bomb: enabled")
+        if self.throttle_kbps > 0:
+            print(f"    Throttle: {self.throttle_kbps} Kbps")
 
         start_time = time.time()
 
@@ -1274,6 +1283,12 @@ def main():
         action="store_true",
         help="Send gzip bomb payload to test decompression",
     )
+    parser.add_argument(
+        "--throttle",
+        type=int,
+        default=0,
+        help="Bandwidth throttle in Kbps (simulate slow connection)",
+    )
 
     args = parser.parse_args()
 
@@ -1323,6 +1338,7 @@ def main():
         host_header=args.host_header,
         cache_bypass=args.cache_bypass,
         gzip_bomb=args.gzip_bomb,
+        throttle_kbps=args.throttle,
     )
     tester.run()
 
