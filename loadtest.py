@@ -44,6 +44,7 @@ class LoadTester:
         malformed=0,
         config=None,
         real_time=False,
+        proxy_chain=None,
     ):
         if config:
             with open(config, "r") as f:
@@ -61,6 +62,7 @@ class LoadTester:
                 protocol = cfg.get("protocol", protocol)
                 output = cfg.get("output", output)
                 proxy = cfg.get("proxy", proxy)
+                proxy_chain = cfg.get("proxy_chain", proxy_chain)
                 rps = cfg.get("rps", rps)
                 client_cert = cfg.get("client_cert", client_cert)
                 client_key = cfg.get("client_key", client_key)
@@ -91,6 +93,7 @@ class LoadTester:
         self.pipeline = pipeline
         self.malformed = malformed
         self.real_time = real_time
+        self.proxy_chain = proxy_chain or []
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -845,6 +848,11 @@ def main():
         action="store_true",
         help="Show real-time progress updates",
     )
+    parser.add_argument(
+        "--proxy-chain",
+        nargs="+",
+        help="Chain multiple proxies (e.g., --proxy-chain http://proxy1:8080 http://proxy2:3128)",
+    )
 
     args = parser.parse_args()
 
@@ -877,6 +885,7 @@ def main():
         malformed=args.malformed,
         config=args.config,
         real_time=args.real_time,
+        proxy_chain=args.proxy_chain,
     )
     tester.run()
 
