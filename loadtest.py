@@ -7,8 +7,16 @@ import requests
 import httpx
 import json
 import csv
+import socket
+import hashlib
+import base64
+import os
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+
+def generate_websocket_key():
+    return base64.b64encode(os.urandom(16)).decode()
 
 
 class LoadTester:
@@ -31,6 +39,7 @@ class LoadTester:
         client_cert=None,
         client_key=None,
         tls_version=None,
+        ws=False,
     ):
         self.url = url
         self.total_requests = total_requests
@@ -49,6 +58,7 @@ class LoadTester:
         self.client_cert = client_cert
         self.client_key = client_key
         self.tls_version = tls_version
+        self.ws = ws
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -309,6 +319,57 @@ class LoadTester:
                         self.results["errors"].get(str(type(e).__name__), 0) + 1
                     )
 
+    def ws_worker(self):
+        while self.running:
+            try:
+                start = time.time()
+                ws_url = (
+                    self.url.replace("http", "ws")
+                    if self.url.startswith("http")
+                    else self.url
+                )
+
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(10)
+
+                parsed = httpx.URL(ws_url)
+                host = parsed.host
+                port = parsed.port or 80
+                path = parsed.path or "/"
+
+                sock.connect((host, port))
+
+                key = generate_websocket_key()
+                handshake = (
+                    f"GET {path} HTTP/1.1\r\n"
+                    f"Host: {host}:{port}\r\n"
+                    f"Upgrade: websocket\r\n"
+                    f"Connection: Upgrade\r\n"
+                    f"Sec-WebSocket-Key: {key}\r\n"
+                    f"Sec-WebSocket-Version: 13\r\n"
+                    f"\r\n"
+                )
+                sock.send(handshake.encode())
+
+                response = sock.recv(4096)
+                elapsed = time.time() - start
+
+                sock.close()
+
+                with self.lock:
+                    if b"101 Switching Protocols" in response:
+                        self.results["success"] += 1
+                    else:
+                        self.results["failed"] += 1
+                    self.results["response_times"].append(elapsed)
+
+            except Exception as e:
+                with self.lock:
+                    self.results["failed"] += 1
+                    self.results["errors"][str(type(e).__name__)] = (
+                        self.results["errors"].get(str(type(e).__name__), 0) + 1
+                    )
+
     def get_target_url(self):
         if self.endpoints:
             path = random.choice(self.endpoints)
@@ -350,7 +411,14 @@ class LoadTester:
                 "\n[!] WARNING: SSL verification is disabled. This is insecure and vulnerable to MITM attacks."
             )
 
-        print(f"\n[*] Starting {self.mode.upper()} test: {self.url}")
+        if self.ws and not self.url.startswith(("ws://", "wss://")):
+            ws_url = self.url.replace("http", "ws", 1)
+            self.url = ws_url
+
+        if self.ws:
+            print(f"\n[*] Starting WEBSOCKET test: {self.url}")
+        else:
+            print(f"\n[*] Starting {self.mode.upper()} test: {self.url}")
         print(f"    Total requests: {self.total_requests}")
         print(f"    Concurrency: {self.concurrency}")
         print(f"    Method: {self.method}")
@@ -367,7 +435,19 @@ class LoadTester:
 
         start_time = time.time()
 
-        if self.mode == "saturation":
+        if self.ws:
+            threads = []
+            for _ in range(self.concurrency):
+                t = threading.Thread(target=self.ws_worker)
+                t.start()
+                threads.append(t)
+
+            time.sleep(self.total_requests / 100)
+
+            self.running = False
+            for t in threads:
+                t.join()
+        elif self.mode == "saturation":
             threads = []
             for _ in range(self.concurrency):
                 t = threading.Thread(target=self.saturation_worker)
@@ -595,6 +675,13 @@ def main():
         help="Minimum TLS version",
     )
     parser.add_argument(
+        "--ws",
+        "--websocket",
+        action="store_true",
+        dest="ws",
+        help="WebSocket mode",
+    )
+    parser.add_argument(
         "--proxy",
         help="Proxy URL (e.g., http://127.0.0.1:8080)",
     )
@@ -625,6 +712,7 @@ def main():
         client_cert=args.client_cert,
         client_key=args.client_key,
         tls_version=args.tls_version,
+        ws=args.ws,
     )
     tester.run()
 
