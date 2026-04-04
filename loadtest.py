@@ -60,6 +60,8 @@ class LoadTester:
         dns_stress=False,
         ipv6=False,
         http_version=None,
+        host_header=None,
+        cache_bypass=False,
     ):
         if config:
             with open(config, "r") as f:
@@ -91,6 +93,8 @@ class LoadTester:
                 dns_stress = cfg.get("dns_stress", dns_stress)
                 ipv6 = cfg.get("ipv6", ipv6)
                 http_version = cfg.get("http_version", http_version)
+                host_header = cfg.get("host_header", host_header)
+                cache_bypass = cfg.get("cache_bypass", cache_bypass)
                 rps = cfg.get("rps", rps)
                 client_cert = cfg.get("client_cert", client_cert)
                 client_key = cfg.get("client_key", client_key)
@@ -135,6 +139,8 @@ class LoadTester:
         self.dns_stress = dns_stress
         self.ipv6 = ipv6
         self.http_version = http_version
+        self.host_header = host_header
+        self.cache_bypass = cache_bypass
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -340,6 +346,8 @@ class LoadTester:
                     kwargs["headers"]["Cookie"] += f"; {self.session_cookie}"
                 else:
                     kwargs["headers"]["Cookie"] = self.session_cookie
+            if self.host_header:
+                kwargs["headers"]["Host"] = self.host_header
             if self.data:
                 kwargs["data"] = self.data
             if self.proxy:
@@ -709,6 +717,16 @@ class LoadTester:
                 base = self.url.rstrip("/")
                 return base + path
             return path
+
+        if self.cache_bypass:
+            from urllib.parse import urlparse, parse_qs, urlencode
+
+            parsed = urlparse(self.url)
+            params = parse_qs(parsed.query)
+            params[f"_cb_{random.randint(10000, 99999)}"] = ""
+            new_query = urlencode(params, doseq=True)
+            return parsed._replace(query=new_query).geturl()
+
         return self.url
 
     def make_httpx_request(self, target_url, kwargs):
@@ -789,6 +807,10 @@ class LoadTester:
             print(f"    IPv6: enabled")
         if self.http_version:
             print(f"    HTTP Version: {self.http_version}")
+        if self.host_header:
+            print(f"    Host Header: {self.host_header}")
+        if self.cache_bypass:
+            print(f"    Cache Bypass: enabled")
 
         start_time = time.time()
 
@@ -1227,6 +1249,15 @@ def main():
         choices=["1.0", "1.1", "0.9"],
         help="Custom HTTP version (1.0, 1.1, 0.9)",
     )
+    parser.add_argument(
+        "--host-header",
+        help="Custom Host header value (for virtual host testing)",
+    )
+    parser.add_argument(
+        "--cache-bypass",
+        action="store_true",
+        help="Add random query params to bypass CDN cache",
+    )
 
     args = parser.parse_args()
 
@@ -1273,6 +1304,8 @@ def main():
         dns_stress=args.dns_stress,
         ipv6=args.ipv6,
         http_version=args.http_version,
+        host_header=args.host_header,
+        cache_bypass=args.cache_bypass,
     )
     tester.run()
 
