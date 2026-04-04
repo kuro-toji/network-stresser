@@ -57,6 +57,7 @@ class LoadTester:
         range_test=False,
         slowloris=False,
         slow_post=False,
+        dns_stress=False,
     ):
         if config:
             with open(config, "r") as f:
@@ -85,6 +86,7 @@ class LoadTester:
                 range_test = cfg.get("range_test", range_test)
                 slowloris = cfg.get("slowloris", slowloris)
                 slow_post = cfg.get("slow_post", slow_post)
+                dns_stress = cfg.get("dns_stress", dns_stress)
                 rps = cfg.get("rps", rps)
                 client_cert = cfg.get("client_cert", client_cert)
                 client_key = cfg.get("client_key", client_key)
@@ -126,6 +128,7 @@ class LoadTester:
         self.range_test = range_test
         self.slowloris = slowloris
         self.slow_post = slow_post
+        self.dns_stress = dns_stress
         self.results = {"success": 0, "failed": 0, "response_times": [], "errors": {}}
         self.lock = threading.Lock()
         self.running = True
@@ -232,6 +235,41 @@ class LoadTester:
                         break
 
                 sock.close()
+                with self.lock:
+                    self.results["success"] += 1
+            except Exception as e:
+                with self.lock:
+                    self.results["failed"] += 1
+
+    def dns_worker(self):
+        try:
+            parts = self.url.split("/")[-1].split(":")
+            host = parts[0] if parts else self.url
+            port = int(parts[1]) if len(parts) > 1 else 53
+        except:
+            return
+
+        while self.running:
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.settimeout(5)
+
+                transaction_id = random.randint(0, 65535)
+
+                dns_query = struct.pack("!HHHHHH", transaction_id, 0x0100, 1, 0, 0, 0)
+
+                domain = host.split(".")[0] if "." in host else host
+                dns_query += (
+                    bytes([len(domain)]) + domain.encode() + bytes([0, 0, 1, 0, 1])
+                )
+
+                sock.sendto(dns_query, (host, port))
+                try:
+                    sock.recv(512)
+                except:
+                    pass
+                sock.close()
+
                 with self.lock:
                     self.results["success"] += 1
             except Exception as e:
@@ -718,6 +756,8 @@ class LoadTester:
             print(f"    Slowloris: enabled")
         if self.slow_post:
             print(f"    Slow POST: enabled")
+        if self.dns_stress:
+            print(f"    DNS Stress: enabled")
 
         start_time = time.time()
 
@@ -777,6 +817,18 @@ class LoadTester:
                 threads.append(t)
 
             time.sleep(self.total_requests / 10)
+
+            self.running = False
+            for t in threads:
+                t.join()
+        elif self.dns_stress:
+            threads = []
+            for _ in range(self.concurrency):
+                t = threading.Thread(target=self.dns_worker)
+                t.start()
+                threads.append(t)
+
+            time.sleep(self.total_requests / 100)
 
             self.running = False
             for t in threads:
@@ -1129,6 +1181,11 @@ def main():
         action="store_true",
         help="Slow POST attack (slow body transmission)",
     )
+    parser.add_argument(
+        "--dns-stress",
+        action="store_true",
+        help="DNS server stress test",
+    )
 
     args = parser.parse_args()
 
@@ -1172,6 +1229,7 @@ def main():
         range_test=args.range_test,
         slowloris=args.slowloris,
         slow_post=args.slow_post,
+        dns_stress=args.dns_stress,
     )
     tester.run()
 
