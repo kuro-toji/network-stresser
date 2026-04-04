@@ -330,6 +330,12 @@ class LoadTester:
                     time.sleep(min_interval - (now - self.last_request_time))
                 self.last_request_time = time.time()
 
+        if self.proxy_chain:
+            with self.lock:
+                if not hasattr(self, "_proxy_idx"):
+                    self._proxy_idx = 0
+                self._proxy_idx = (self._proxy_idx + 1) % len(self.proxy_chain)
+
         if self.throttle_kbps > 0:
             expected_time = (1024 * 8) / (self.throttle_kbps * 1000)
             time.sleep(expected_time)
@@ -373,7 +379,12 @@ class LoadTester:
                 kwargs["data"] = bomb
                 kwargs["headers"]["Content-Encoding"] = "gzip"
             if self.proxy:
-                kwargs["proxies"] = {"http": self.proxy, "https": self.proxy}
+                if self.proxy_chain:
+                    current_idx = getattr(self, "_proxy_idx", 0) % len(self.proxy_chain)
+                    current_proxy = self.proxy_chain[current_idx]
+                    kwargs["proxies"] = {"http": current_proxy, "https": current_proxy}
+                else:
+                    kwargs["proxies"] = {"http": self.proxy, "https": self.proxy}
             if self.client_cert:
                 kwargs["cert"] = (
                     self.client_cert
@@ -807,6 +818,8 @@ class LoadTester:
         print(f"    Protocol: {self.protocol.upper()}")
         if self.proxy:
             print(f"    Proxy: {self.proxy}")
+        if self.proxy_chain:
+            print(f"    Proxy Chain: {len(self.proxy_chain)} proxies")
         if self.rps > 0:
             print(f"    RPS limit: {self.rps}")
         if self.pipeline > 1:
