@@ -1,30 +1,56 @@
 # Network Stresser
 
-A powerful yet simple Python-based load testing tool to evaluate web server performance under high traffic conditions.
+A professional-grade, feature-rich network load testing and stress testing tool built with Python. Designed for comprehensive web server performance evaluation under various conditions.
 
 ## Features
 
+### Attack Modes
 - **HTTP Flood** - High volume requests to test server capacity
-- **Connection Saturation** - Many concurrent connections to exhaust connection pools
+- **Connection Saturation** - Exhaust connection pools with many concurrent connections
 - **Slow Request** - Long-duration requests for legitimate timeout testing
-- **Random Endpoints** - Test multiple routes with random selection
-- **HTTP/2 Support** - HTTP/2 protocol for multiplexed connections
-- **WebSocket Support** - Test WebSocket servers
+- **Slowloris** - Partial header keep-alive exhaustion attack
+- **Slow POST** - Slow body transmission attack
+- **UDP Flood** - Direct UDP packet flooding for non-HTTP services
+- **Raw TCP Socket** - Direct TCP socket connections
+
+### Protocol Support
+- **HTTP/1.1** - Standard HTTP protocol
+- **HTTP/2** - Multiplexed connections
+- **QUIC/HTTP3** - Next-generation protocol
+- **WebSocket** - WebSocket server testing
+- **IPv6** - Native IPv6 targeting
+- **Custom HTTP Versions** - HTTP/0.9, HTTP/1.0, HTTP/1.1
+
+### Advanced Testing
 - **HTTP Pipelining** - Send multiple requests in one connection
-- **Malformed Requests** - Test server robustness with invalid HTTP requests
-- **Config Files** - JSON-based attack profiles
+- **HTTP Request Smuggling** - TEO+CL, CL+TEO, TE-content variants
+- **Range Header Testing** - Partial content requests
+- **Malformed Requests** - Invalid HTTP requests for robustness testing
+- **GZIP Bomb** - Decompression bomb payload testing
+- **DNS Stress Test** - DNS server load testing
+- **Host Header Injection** - Virtual host testing
+- **Cache Bypass** - Random query params to bypass CDN cache
+
+### Authentication & Security
+- **Bearer Token** - OAuth/JWT bearer authentication
+- **Basic Auth** - HTTP Basic authentication
+- **Session Cookies** - Cookie-based authentication
+- **Client Certificates** - SSL/TLS client cert/key support
+- **TLS Version Control** - TLSv1, TLSv1.1, TLSv1.2, TLSv1.3
+- **TLS Cipher Selection** - Custom cipher suite selection
+
+### Network Features
+- **Proxy Support** - Single HTTP proxy
+- **Proxy Chain** - Multiple proxies with rotation
+- **Tor/Onion Routing** - Anonymous routing via Tor
+- **Bandwidth Throttling** - Simulate slow connections (Kbps)
+- **Redirect Control** - Toggle 30x redirect following
+
+### Output & Configuration
+- **JSON/CSV Export** - Save results to files
 - **Real-time Progress** - Live stats during test execution
-- **Proxy Chain** - Multiple proxies for evasion
-- **Authentication** - Bearer, Basic, JWT, and session cookie support
-- **TLS Cipher Selection** - Specific TLS cipher suite selection
-- **JSON/CSV Export** - Save results to file for analysis
-- **Rate Limiting** - Custom RPS throttling per thread
-- **Client Certificates** - SSL client cert/key support
-- **TLS Version Control** - Minimum TLS version selection
-- **Multiple HTTP Methods** - GET and POST support
-- **Custom Headers** - Add authentication, cookies, etc.
-- **SSL Control** - Toggle SSL verification
-- **Detailed Results** - Response times, error rates, RPS
+- **Config Files** - JSON-based attack profiles
+- **Multi-target Mode** - Test multiple targets from config
 
 ## Installation
 
@@ -34,12 +60,12 @@ cd network-stresser
 pip install -r requirements.txt
 ```
 
-## Usage
+## Usage Examples
 
-### HTTP Flood Mode
+### Basic HTTP Flood
 
 ```bash
-# Basic flood test
+# Standard flood test
 python loadtest.py http://localhost:8080 -n 10000 -c 50
 
 # POST request flood
@@ -47,142 +73,70 @@ python loadtest.py http://localhost:8080/login -m POST -n 5000 -c 20
 
 # With custom headers
 python loadtest.py http://localhost:8080 -H "Authorization:Bearer token" -c 100
-
-# Disable SSL verification
-python loadtest.py https://localhost:8080 --no-ssl-verify
 ```
 
-### Connection Saturation Mode
+### Advanced Attack Modes
 
 ```bash
-# Exhaust connection pools with many concurrent connections
+# Connection saturation
 python loadtest.py http://localhost:8080 --mode saturation -c 100 -n 1000
+
+# Slowloris attack
+python loadtest.py http://localhost:8080 --slowloris -c 50 -n 100
+
+# Slow POST attack
+python loadtest.py http://localhost:8080 --slow-post -c 50 -n 100
+
+# UDP flood (non-HTTP)
+python loadtest.py 192.168.1.1:53 --udp-flood -c 100 -n 10000
 ```
 
-### Slow Request Mode
+### Protocol Testing
 
 ```bash
-# Test server timeout handling with long-duration requests
-python loadtest.py http://localhost:8080 --mode slow -c 50 -n 10 --slow-duration 120
-```
-
-### Random Endpoints Mode
-
-```bash
-# Test multiple routes with random selection
-python loadtest.py http://localhost:8080 -e /api/users -e /api/login -e /admin -c 50
-
-# Combine with any mode
-python loadtest.py http://localhost:8080 --mode saturation -e /api/v1/* -e /admin -c 100
-```
-
-### HTTP/2 Mode
-
-```bash
-# HTTP/2 with multiplexed connections
+# HTTP/2
 python loadtest.py http://localhost:8080 -p h2 -c 50 -n 5000
 
-# HTTP/2 with saturation mode
-python loadtest.py http://localhost:8080 --mode saturation -p h2 -c 100
-```
+# QUIC/HTTP3
+python loadtest.py http://localhost:8080 --quic -c 50
 
-### Proxy Support
-
-```bash
-# Route traffic through proxy
-python loadtest.py http://target.com --proxy http://127.0.0.1:8080 -c 50
-
-# Combine with any mode
-python loadtest.py http://target.com --mode saturation --proxy http://proxy:3128 -c 100
-```
-
-### Export Results
-
-```bash
-# Export to JSON
-python loadtest.py http://localhost:8080 -o json -n 10000
-
-# Export to CSV
-python loadtest.py http://localhost:8080 -o csv -n 10000
-```
-
-### Rate Limiting
-
-```bash
-# Limit to 100 RPS
-python loadtest.py http://localhost:8080 --rps 100 -n 5000
-```
-
-### SSL Options
-
-```bash
-# Client certificate authentication
-python loadtest.py https://localhost:8080 --client-cert cert.pem --client-key key.pem
-
-# Minimum TLS version
-python loadtest.py https://localhost:8080 --tls-version TLSv1.2
-
-# Specific TLS cipher
-python loadtest.py https://localhost:8080 --tls-cipher "ECDHE-RSA-AES256-GCM-SHA384"
-```
-
-### WebSocket Mode
-
-```bash
-# WebSocket stress test
+# WebSocket
 python loadtest.py ws://localhost:8080/ws --ws -c 50 -n 1000
 
-# Auto-convert http to ws
-python loadtest.py http://localhost:8080/socket --ws -c 50
+# IPv6
+python loadtest.py http://localhost:8080 --ipv6 -c 50
 ```
 
-### HTTP Pipelining
+### HTTP Smuggling & Security Testing
 
 ```bash
-# Send 10 requests in one connection
-python loadtest.py http://localhost:8080 --pipeline 10 -n 5000
-```
+# HTTP request smuggling (TEO+CL)
+python loadtest.py http://localhost:8080 --http-smuggling te-cl -n 100
 
-### Malformed Requests
+# HTTP request smuggling (CL+TEO)
+python loadtest.py http://localhost:8080 --http-smuggling cl-te -n 100
 
-```bash
-# 1=basic malformed, 2=invalid version, 3=bad headers, 4=path traversal
+# Malformed requests
 python loadtest.py http://localhost:8080 --malformed 1 -n 100
 python loadtest.py http://localhost:8080 --malformed 2 -n 100
 python loadtest.py http://localhost:8080 --malformed 3 -n 100
-python loadtest.py http://localhost:8080 --malformed 4 -n 100
+
+# GZIP bomb
+python loadtest.py http://localhost:8080 --gzip-bomb -n 100
 ```
 
-### Config Files
+### Proxy & Anonymity
 
 ```bash
-# Load attack profile from JSON
-python loadtest.py --config profile.json
-```
+# Single proxy
+python loadtest.py http://target.com --proxy http://127.0.0.1:8080
 
-Example profile.json:
-```json
-{
-  "url": "http://target.com",
-  "requests": 10000,
-  "concurrency": 50,
-  "mode": "flood",
-  "proxy": "http://proxy:8080"
-}
-```
+# Proxy chain with rotation
+python loadtest.py http://target.com --proxy-chain http://proxy1:8080 http://proxy2:3128
 
-### Real-time Progress
-
-```bash
-# Show live progress
-python loadtest.py http://localhost:8080 -n 10000 --real-time
-```
-
-### Proxy Chain
-
-```bash
-# Chain multiple proxies
-python loadtest.py http://target.com --proxy-chain http://proxy1:8080 http://proxy2:3128 -c 50
+# Tor/Onion routing
+python loadtest.py http://target.com --tor
+python loadtest.py http://target.com --tor --tor-port 9050
 ```
 
 ### Authentication
@@ -195,51 +149,138 @@ python loadtest.py http://localhost:8080 --auth-type bearer --auth-token "your-t
 python loadtest.py http://localhost:8080 --auth-type basic --auth-token "user:pass"
 
 # JWT
-python loadtest.py http://localhost:8080 --auth-type jwt --auth-token "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+python loadtest.py http://localhost:8080 --auth-type jwt --auth-token "eyJ..."
 
 # Session cookie
 python loadtest.py http://localhost:8080 --session-cookie "session=abc123"
 ```
 
-### Options
+### SSL/TLS Options
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `url` | Target URL | Required |
-| `-n, --requests` | Total requests | 1000 |
-| `-c, --concurrency` | Concurrent threads | 10 |
-| `-m, --method` | HTTP method (GET/POST) | GET |
-| `--mode` | Test mode (flood/saturation/slow) | flood |
-| `-p, --protocol` | HTTP protocol (http1/h2) | http1 |
-| `-e, --endpoint` | Endpoint path for random selection | None |
-| `--slow-duration` | Duration for slow mode (seconds) | 60 |
-| `-o, --output` | Export format (json/csv) | None |
-| `--rps` | Max requests per second | 0 (unlimited) |
-| `--client-cert` | Path to client certificate | None |
-| `--client-key` | Path to client key | None |
-| `--tls-version` | Minimum TLS version | None |
-| `--tls-cipher` | TLS cipher suite | None |
-| `--proxy` | Proxy URL | None |
-| `--proxy-chain` | Multiple proxy chain | None |
-| `--ws, --websocket` | WebSocket mode | False |
-| `--pipeline` | HTTP pipelining count | 1 |
-| `--malformed` | Malformed request type (0-4) | 0 |
-| `--config` | Load from JSON config | None |
-| `--real-time` | Show real-time progress | False |
-| `--auth-type` | Auth type (bearer/basic/jwt) | None |
-| `--auth-token` | Auth token/credentials | None |
-| `--session-cookie` | Session cookie | None |
-| `-H, --header` | Custom header (key:value) | None |
-| `--no-ssl-verify` | Disable SSL verification | False |
+```bash
+# Client certificate
+python loadtest.py https://localhost:8080 --client-cert cert.pem --client-key key.pem
+
+# TLS version
+python loadtest.py https://localhost:8080 --tls-version TLSv1.2
+
+# Custom cipher
+python loadtest.py https://localhost:8080 --tls-cipher "ECDHE-RSA-AES256-GCM-SHA384"
+
+# Disable SSL verification
+python loadtest.py https://localhost:8080 --no-ssl-verify
+```
+
+### Configuration Files
+
+```bash
+# Load from JSON config
+python loadtest.py --config profile.json
+```
+
+Example `profile.json`:
+```json
+{
+  "url": "http://target.com",
+  "requests": 10000,
+  "concurrency": 50,
+  "mode": "flood",
+  "proxy": "http://proxy:8080",
+  "auth_type": "bearer",
+  "auth_token": "your-token"
+}
+```
+
+### Output & Monitoring
+
+```bash
+# JSON export
+python loadtest.py http://localhost:8080 -o json -n 10000
+
+# CSV export
+python loadtest.py http://localhost:8080 -o csv -n 10000
+
+# Real-time progress
+python loadtest.py http://localhost:8080 -n 10000 --real-time
+
+# Rate limiting (100 RPS)
+python loadtest.py http://localhost:8080 --rps 100 -n 5000
+```
+
+### Multi-target Testing
+
+```bash
+# Load multiple targets
+python loadtest.py --targets-file targets.json
+```
+
+Example `targets.json`:
+```json
+{
+  "targets": [
+    "http://server1.com",
+    "http://server2.com",
+    "http://server3.com"
+  ]
+}
+```
+
+## Command Options
+
+| Category | Option | Description | Default |
+|----------|--------|-------------|---------|
+| **Basic** | `url` | Target URL | Required |
+| | `-n, --requests` | Total requests | 1000 |
+| | `-c, --concurrency` | Concurrent threads | 10 |
+| | `-m, --method` | HTTP method (GET/POST) | GET |
+| **Mode** | `--mode` | Test mode (flood/saturation/slow) | flood |
+| | `--slow-duration` | Slow mode duration (seconds) | 60 |
+| **Protocol** | `-p, --protocol` | Protocol (http1/h2) | http1 |
+| | `--quic` | QUIC/HTTP3 support | False |
+| | `--ws` | WebSocket mode | False |
+| | `--ipv6` | IPv6 connections | False |
+| | `--http-version` | HTTP version (0.9/1.0/1.1) | None |
+| **Attack** | `--udp-flood` | UDP flood mode | False |
+| | `--raw-socket` | Raw TCP socket | False |
+| | `--slowloris` | Slowloris attack | False |
+| | `--slow-post` | Slow POST attack | False |
+| | `--http-smuggling` | Smuggling type (te-cl/cl-te/te-content) | None |
+| | `--malformed` | Malformed request (1-4) | 0 |
+| | `--gzip-bomb` | GZIP bomb payload | False |
+| | `--dns-stress` | DNS stress test | False |
+| | `--range-test` | Range header test | False |
+| **Network** | `--proxy` | HTTP proxy | None |
+| | `--proxy-chain` | Multiple proxies | None |
+| | `--tor` | Use Tor proxy | False |
+| | `--tor-port` | Tor proxy port | 9050 |
+| | `--throttle` | Bandwidth throttle (Kbps) | 0 |
+| **Auth** | `--auth-type` | Auth type (bearer/basic/jwt) | None |
+| | `--auth-token` | Auth token | None |
+| | `--session-cookie` | Session cookie | None |
+| **SSL** | `--client-cert` | Client certificate | None |
+| | `--client-key` | Client key | None |
+| | `--tls-version` | TLS version | None |
+| | `--tls-cipher` | TLS cipher | None |
+| | `--no-ssl-verify` | Disable SSL verify | False |
+| **Advanced** | `--pipeline` | HTTP pipelining count | 1 |
+| | `--rps` | Max requests per second | 0 |
+| | `--host-header` | Custom Host header | None |
+| | `--cache-bypass` | Random query params | False |
+| | `--no-follow-redirects` | Don't follow redirects | False |
+| **Output** | `-o, --output` | Export format (json/csv) | None |
+| | `--real-time` | Show live progress | False |
+| | `--config` | Load JSON config | None |
+| | `--targets-file` | Load multiple targets | None |
 
 ## Example Output
 
 ```
-[*] Starting HTTP Flood test: http://localhost:8080
+[*] Starting HTTP FLOOD test: http://localhost:8080
     Total requests: 10000
     Concurrency: 50
     Method: GET
     Mode: flood
+    Protocol: HTTP1
 
 ==================================================
 HTTP FLOOD RESULTS
@@ -265,15 +306,17 @@ Errors:
 
 ## Use Cases
 
-- Testing your own web applications
-- Evaluating server capacity
-- Identifying performance bottlenecks
+- Performance testing and capacity planning
+- Identifying server bottlenecks
 - Load testing during development
+- DDoS mitigation testing
+- SSL/TLS configuration validation
+- Proxy and network infrastructure testing
 
 ## Disclaimer
 
-This tool is for authorized load testing only. Always ensure you have permission before testing any system.
+This tool is intended for authorized security testing and load testing only. Always ensure you have explicit permission before testing any system. Unauthorized testing may be illegal.
 
 ## License
 
-MIT
+MIT License
